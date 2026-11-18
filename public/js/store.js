@@ -58,6 +58,7 @@
         write(d);
       },
       async ping() { return { ok: true, mode: 'local' }; },
+      async saveSettings() { return { ok: true }; },     // DEMO: settings live in this browser only
       // Local DEMO pharmacy: fixed demo logins, no server involved.
       async login(shopId, pin) {
         const id = String(shopId || '').trim().toUpperCase();
@@ -113,6 +114,7 @@
       async addEvent(ev, batch) { return post('addEvent', { event: ev, batch: batch }); },
       async addEvents(list) { return post('addEvents', { events: list }); },
       async clearDemo() { return post('clearDemo', {}); },
+      async saveSettings(s) { return post('saveSettings', { settings: s }); },
       async ping() { return get('ping'); },
       async login(shopId, pin) { return post('login', { shopId: shopId, pin: pin }); },
       async logout() { return post('logout', {}); }

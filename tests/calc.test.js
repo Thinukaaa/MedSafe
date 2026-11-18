@@ -54,4 +54,34 @@ assert.strictEqual(im.recovered, 150);
 assert.strictEqual(im.lost, 50);
 assert.strictEqual(im.rate, 75);
 
+// Supplier returns: returnBy = expiry − window; critical/warning only; grouped + sorted
+const RS = { criticalDays: 30, warningDays: 90, returnWindowDays: 60 };
+const rp = Calc.returnPlan(Calc.enrich([
+  { id: 'r1', expiry: '2027-02-10', qty: 5, costPrice: 10, supplier: 'B' },   // 83 days → warning, return by 2026-12-12 (23 days)
+  { id: 'r2', expiry: '2027-01-25', qty: 2, costPrice: 50, supplier: 'A' },   // 67 days → warning, return by 2026-11-26 (7 days)
+  { id: 'r3', expiry: '2027-02-15', qty: 1, costPrice: 20, supplier: 'A' },   // 88 days → return by 2026-12-17
+  { id: 'r4', expiry: '2026-12-01', qty: 3, costPrice: 10, supplier: 'B' },   // critical, return by 2026-10-02 → passed
+  { id: 'r5', expiry: '2027-06-01', qty: 9, costPrice: 10, supplier: 'C' },   // ok → not listed
+  { id: 'r6', expiry: '2027-01-20', qty: 0, costPrice: 10, supplier: 'C' }    // sold out → not listed
+], RS, ref), RS, ref);
+assert.deepStrictEqual(rp.groups.map(function (g) { return g.supplier; }), ['A', 'B']);
+assert.deepStrictEqual(rp.groups[0].items.map(function (b) { return b.id; }), ['r2', 'r3']);
+assert.strictEqual(Calc.toISODate(rp.groups[0].items[0].returnBy), '2026-11-26');
+assert.strictEqual(rp.groups[0].items[0].daysToReturn, 7);
+assert.strictEqual(rp.groups[0].value, 120);
+assert.strictEqual(rp.passed.batches, 1);
+assert.strictEqual(rp.passed.value, 30);
+assert.ok(/60 days/.test(Calc.formula('returnBy', RS)) && /ASSUMPTION/.test(Calc.formula('returnBy', RS)));
+
+// Business case
+const bc = Calc.businessCase({ monthlyLoss: 10000, sharePct: 50, packagePrice: 30000, yearlySupport: 6000 });
+assert.strictEqual(bc.yearlyLoss, 120000);
+assert.strictEqual(bc.yearlySaving, 60000);
+assert.strictEqual(bc.monthlySaving, 5000);
+assert.strictEqual(bc.paybackMonths, 6);
+assert.strictEqual(bc.net3y, 3 * 60000 - 30000 - 3 * 6000);
+const bcEmpty = Calc.businessCase({ monthlyLoss: '', sharePct: 50, packagePrice: '' });
+assert.strictEqual(bcEmpty.yearlyLoss, null);
+assert.strictEqual(bcEmpty.paybackMonths, null);
+
 console.log('All calc tests passed ✔');

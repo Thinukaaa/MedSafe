@@ -198,7 +198,8 @@ td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: t
 .chip.ok { background: var(--ok-bg); color: var(--ok); }
 .chip.unknown, .chip.closed { background: #EEF2F6; color: var(--muted); }
 .chip.demo { background: var(--demo-bg); color: var(--demo); }
-.chip.assumption { background: var(--warning-bg); color: var(--warning); }
+.chip.asm { background: var(--warning-bg); color: var(--warning); }
+label > .chip { align-self: flex-start; }
 
 /* ---------- Impact ---------- */
 .impact { display: grid; gap: 10px; padding: 4px 16px 6px; }
@@ -207,6 +208,25 @@ td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: t
 .impact .val { font-size: 1.35rem; font-weight: 800; font-variant-numeric: tabular-nums; }
 .impact .val.good { color: var(--ok); }
 .impact .val.bad { color: var(--expired); }
+
+/* ---------- Supplier returns ---------- */
+.returns { padding: 0 16px 8px; }
+.ret-group { border-top: 1px solid var(--line); padding: 10px 0; }
+.ret-group:first-child { border-top: 0; }
+.ret-group h3 { display: flex; justify-content: space-between; gap: 8px; font-size: .92rem; }
+.ret-group ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.ret-group li { display: flex; justify-content: space-between; gap: 10px; font-size: .86rem; }
+.ret-group li .when { white-space: nowrap; font-weight: 700; }
+.ret-group li .when.soon { color: var(--critical); }
+.ret-passed { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--expired-bg); color: var(--expired); font-size: .84rem; }
+
+/* ---------- Business case ---------- */
+.biz-out { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.biz-out > div { display: flex; flex-direction: column; gap: 4px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+.biz-out .label { color: var(--muted); font-weight: 600; font-size: .85rem; }
+.biz-out .val { font-size: 1.4rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.biz-out .val.good { color: var(--ok); }
+@media (max-width: 600px) { .biz-out { grid-template-columns: 1fr; } }
 
 /* ---------- Add flow ---------- */
 .steps { list-style: none; display: flex; gap: 8px; justify-content: center; padding: 0; margin: 0 0 14px; }

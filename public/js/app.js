@@ -15,13 +15,19 @@
     criticalDays: 30,
     warningDays: 90,
     marginPct: 16,          // ASSUMPTION — replace with the figure from the field visit
+    returnWindowDays: 60,   // ASSUMPTION — ask each supplier
+    business: { monthlyLoss: '', monthlyLossSource: '', sharePct: 50, shareSource: 'ASSUMPTION — replace with the measured recovery rate',
+      packagePrice: '', priceSource: '', yearlySupport: '', supportSource: '' },
     apiUrl: (window.MS_CONFIG && window.MS_CONFIG.API_URL) || ''
   };
+  // Settings shared through the Google Sheet (owner edits). apiUrl stays per browser.
+  const SHARED_KEYS = ['pharmacyName', 'criticalDays', 'warningDays', 'marginPct', 'returnWindowDays', 'business'];
   const TITLES = {
     dashboard: 'Dashboard', add: 'Scan & add stock', stock: 'Stock', cold: 'Cold chain', more: 'More',
-    log: 'Action log', settings: 'Settings'
+    log: 'Action log', settings: 'Settings', business: 'Business case', sources: 'Sources & assumptions'
   };
-  const MORE_TABS = ['more', 'log', 'settings'];
+  const MORE_TABS = ['more', 'log', 'settings', 'business', 'sources'];
+  const SYNC_MS = 60 * 1000;
 
   let settings = loadSettings();
   let session = loadSession();
@@ -32,12 +38,23 @@
   function loadSettings() {
     try {
       const saved = JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}');
-      const s = Object.assign({}, DEFAULTS, saved);
-      s.criticalDays = Number(s.criticalDays) || DEFAULTS.criticalDays;
-      s.warningDays = Number(s.warningDays) || DEFAULTS.warningDays;
-      s.marginPct = isFinite(Number(s.marginPct)) && s.marginPct !== '' ? Number(s.marginPct) : DEFAULTS.marginPct;
-      return s;
+      return normaliseSettings(saved);
     } catch (e) { return Object.assign({}, DEFAULTS); }
+  }
+  function numOr(v, d) { return v !== '' && v !== null && v !== undefined && isFinite(Number(v)) ? Number(v) : d; }
+  function normaliseSettings(saved) {
+    const s = Object.assign({}, DEFAULTS, saved);
+    s.business = Object.assign({}, DEFAULTS.business, (saved && saved.business) || {});
+    s.criticalDays = Number(s.criticalDays) || DEFAULTS.criticalDays;
+    s.warningDays = Number(s.warningDays) || DEFAULTS.warningDays;
+    s.marginPct = numOr(s.marginPct, DEFAULTS.marginPct);
+    s.returnWindowDays = numOr(s.returnWindowDays, DEFAULTS.returnWindowDays);
+    return s;
+  }
+  function sharedSettings() {
+    const o = {};
+    SHARED_KEYS.forEach(function (k) { o[k] = settings[k]; });
+    return o;
   }
   function saveSettings(s) { localStorage.setItem(LS_SETTINGS, JSON.stringify(s)); }
 
@@ -115,8 +132,9 @@
     document.body.classList.toggle('role-staff', !isOwner());
     $('#whoami').textContent = 'Signed in as ' + session.name + ' (' + session.role + ')';
     $('#deleteBatchBtn').hidden = !isOwner();
-    $$('#settingsForm input, #settingsForm button, #loadSampleBtn, #clearSampleBtn').forEach(function (el) { el.disabled = !isOwner(); });
+    $$('#settingsForm input, #settingsForm button, #loadSampleBtn, #clearSampleBtn, #bizForm input, #bizForm button').forEach(function (el) { el.disabled = !isOwner(); });
     $('#ownerOnlyNote').hidden = isOwner();
+    $('#bizStaffNote').hidden = isOwner();
   }
 
   // ---------------- Helpers ----------------
@@ -195,6 +213,10 @@
     setBusy(true);
     try {
       const d = await store.load();
+      if (d.settings && Object.keys(d.settings).length) {
+        settings = normaliseSettings(Object.assign({}, settings, d.settings, { apiUrl: settings.apiUrl }));
+        saveSettings(settings);
+      }
       state.batches = d.batches.map(normaliseBatch);
       state.events = d.events;
       state.lastSync = new Date();
@@ -230,6 +252,121 @@
     renderStock(enriched);
     renderLog();
     renderSuppliers();
+    renderReturns(enriched);
+    renderBusiness();
+    renderSources();
+  }
+
+  // ---------------- Supplier returns ----------------
+  let returnsText = '';
+  function renderReturns(enriched) {
+    const plan = Calc.returnPlan(enriched, settings);
+    const asOf = new Date();
+    let html = '';
+    const lines = ['MedSafe — supplier returns (as of ' + fmtDateTime(asOf) + ' Sri Lanka time)', 'Return by = expiry − ' + settings.returnWindowDays + ' days (ASSUMPTION).'];
+    plan.groups.forEach(function (g) {
+      html += '<div class="ret-group"><h3><span>' + esc(g.supplier) + '</span><span>' + rs(g.value) + '</span></h3><ul>' +
+        g.items.map(function (b) {
+          return '<li><span>' + esc(b.name) + ' ' + esc(b.strength) + demoChip(b) + '<span class="sub muted"> · ' + esc(b.batchNo) + ' · ' + plural(b.qty, 'unit', 'units') + '</span></span>' +
+            '<span class="when' + (b.daysToReturn <= 7 ? ' soon' : '') + '">by ' + fmtDate(b.returnBy) + '</span></li>';
+        }).join('') + '</ul></div>';
+      lines.push('', '*' + g.supplier + '* (' + rs(g.value) + ' at cost)');
+      g.items.forEach(function (b) {
+        lines.push('• ' + b.name + ' ' + b.strength + ' — batch ' + b.batchNo + ', ' + plural(b.qty, 'unit', 'units') + ', exp ' + fmtDate(b.expiryDate) + ' → return by ' + fmtDate(b.returnBy) + (b.demo ? ' [DEMO]' : ''));
+      });
+    });
+    if (!plan.groups.length) html = '<p class="empty">No supplier returns due in the next ' + Math.max(0, settings.warningDays - settings.returnWindowDays) + ' days.</p>';
+    if (plan.passed.batches) {
+      html += '<p class="ret-passed">' + plural(plan.passed.batches, 'batch is', 'batches are') + ' past the return window (' + rs(plan.passed.value) + ') — sell first or ask the supplier.</p>';
+    }
+    $('#returnsBody').innerHTML = html;
+    $('#copyReturnsBtn').hidden = !plan.groups.length;
+    returnsText = lines.join('\n');
+  }
+
+  async function copyReturns() {
+    try {
+      await navigator.clipboard.writeText(returnsText);
+    } catch (e) {
+      const t = document.createElement('textarea');
+      t.value = returnsText; document.body.appendChild(t); t.select();
+      document.execCommand('copy'); t.remove();
+    }
+    toast('Copied — paste it into WhatsApp', 'ok');
+  }
+
+  // ---------------- Business case ----------------
+  const BIZ_FIELDS = ['monthlyLoss', 'monthlyLossSource', 'sharePct', 'shareSource', 'packagePrice', 'priceSource', 'yearlySupport', 'supportSource'];
+  function renderBusiness() {
+    const b = settings.business;
+    const f = $('#bizForm');
+    if (!f.contains(document.activeElement)) BIZ_FIELDS.forEach(function (k) { f.elements[k].value = b[k] === undefined ? '' : b[k]; });
+    const out = Calc.businessCase(b);
+    $('#bYearlyLoss').textContent = out.yearlyLoss === null ? 'Enter monthly loss' : rs(out.yearlyLoss) + ' / year';
+    $('#bYearlySaving').textContent = out.yearlySaving === null ? '—' : rs(out.yearlySaving) + ' / year';
+    $('#bPayback').textContent = out.paybackMonths === null ? 'Enter price' : out.paybackMonths.toFixed(1) + ' months';
+    $('#bNet3y').textContent = out.net3y === null ? '—' : rs(out.net3y);
+    $('#bSources').textContent = 'Sources — monthly loss: ' + (b.monthlyLossSource || 'not given') + ' · share prevented: ' + (b.shareSource || 'not given') +
+      ' · price: ' + (b.priceSource || 'not given') + ' · support: ' + (b.supportSource || 'not given') + '.';
+    const im = Calc.impact(state.events, settings);
+    $('#useRateBtn').disabled = !isOwner() || im.rate === null;
+    $('#useRateHint').textContent = im.rate === null ? 'No actions recorded yet.' : 'Measured from the action log: ' + im.rate.toFixed(1) + ' %' + (state.events.some(function (e) { return e.demo === true || e.demo === 'TRUE'; }) ? ' (includes DEMO actions)' : '') + '.';
+  }
+
+  function onUseRate() {
+    const im = Calc.impact(state.events, settings);
+    if (im.rate === null) return;
+    const f = $('#bizForm');
+    f.elements.sharePct.value = Math.round(im.rate * 10) / 10;
+    f.elements.shareSource.value = 'Measured recovery rate from the MedSafe action log (' + fmtDateTime(new Date()) + ')';
+  }
+
+  async function onBizSubmit(ev) {
+    ev.preventDefault();
+    if (!isOwner()) { toast('Only the owner can edit the business case', 'error'); return; }
+    const f = ev.target;
+    const b = {};
+    BIZ_FIELDS.forEach(function (k) { b[k] = f.elements[k].value.trim(); });
+    if (Number(b.sharePct) > 100 || Number(b.sharePct) < 0) { toast('Share prevented must be 0–100 %', 'error'); return; }
+    settings = Object.assign({}, settings, { business: b });
+    await persistSettings('Business case saved');
+  }
+
+  /** Save settings locally, and to the Google Sheet when live. */
+  async function persistSettings(msg) {
+    saveSettings(settings);
+    if (store && store.mode === 'sheet') {
+      setBusy(true);
+      try { await store.saveSettings(sharedSettings()); } catch (e) { toast('Saved here, but not on the server: ' + e.message, 'error'); setBusy(false); render(); return; }
+      setBusy(false);
+    }
+    toast(msg, 'ok');
+    render();
+  }
+
+  // ---------------- Sources & assumptions ----------------
+  function renderSources() {
+    const b = settings.business;
+    const src = [
+      ['Medicine prices (MRP, Rs per unit)', 'NMRA — Maximum Retail Price Gazette Extraordinary No. 2336/53, 15 Jun 2023 (data/nmra_mrp_2023.csv → catalogue.json)', 'MRP on every product; cost when the invoice price is unknown'],
+      ['Fridge safe range 2–8 °C', 'WHO vaccine / insulin storage range (refrigerated 2–8 °C)', 'Cold-chain status and minutes out of range'],
+      ['DEMO barcodes (EAN-13 200…)', 'GS1 Restricted Circulation Numbers: prefixes 200–299 are for in-store use only', 'DEMO catalogue codes and printed DEMO labels — never real products'],
+      ['GS1 DataMatrix fields', 'GS1 General Specifications — AI 01 GTIN, 17 expiry (DD 00 = month end), 10 batch, 21 serial', 'Reading real medicine packs'],
+      ['Stock batches and actions', 'Entered by the pharmacy — each batch stores how it was entered and where the cost came from', 'Every dashboard number'],
+      ['Monthly expired loss', b.monthlyLossSource || 'Stakeholder input — not entered yet', 'Business case'],
+      ['Package price / support', [b.priceSource, b.supportSource].filter(Boolean).join(' · ') || 'Not entered yet', 'Business case']
+    ];
+    $('#sourcesBody').innerHTML = src.map(function (r) { return '<tr><td><strong>' + esc(r[0]) + '</strong></td><td>' + esc(r[1]) + '</td><td class="muted">' + esc(r[2]) + '</td></tr>'; }).join('');
+    const asm = [
+      ['Critical window', settings.criticalDays + ' days', 'Settings — ask the pharmacist'],
+      ['Warning window', settings.warningDays + ' days', 'Settings — ask the pharmacist'],
+      ['Pharmacy margin (cost = MRP × (1 − margin))', settings.marginPct + ' %', 'Settings — replace with the figure from the field visit'],
+      ['Supplier return window', settings.returnWindowDays + ' days', 'Settings — ask each supplier'],
+      ['Share of expired loss prevented', (b.sharePct === '' ? '—' : b.sharePct + ' %'), 'Business case — or press “use measured recovery rate”'],
+      ['Box shows month/year only', 'Last day of that month', 'Fixed rule — stated in the “days left” formula'],
+      ['DEMO pharmacy', '35 batches · 10 actions · 4 suppliers', 'Generated deterministically from the catalogue; clear before real data']
+    ];
+    $('#assumptionsBody').innerHTML = asm.map(function (r) { return '<tr><td><span class="chip asm">ASSUMPTION</span> ' + esc(r[0]) + '</td><td class="num"><strong>' + esc(r[1]) + '</strong></td><td class="muted">' + esc(r[2]) + '</td></tr>'; }).join('');
   }
 
   function renderHeader() {
@@ -487,7 +624,7 @@
     card.innerHTML = '<h3>' + esc(p.name) + ' <span class="muted">' + esc(p.strength) + '</span></h3>' +
       '<p>' + esc(p.form || '') + (p.ean ? ' · Barcode ' + esc(p.ean) : '') + '</p>' +
       (p.mrp ? '<p><strong>MRP ' + rs(p.mrp) + ' per unit</strong> — source: ' + esc(p.mrpSource) + '</p>' +
-        '<p>Cost pre-filled as ' + rs(Calc.costFromMrp(p.mrp, settings.marginPct)) + ' = MRP × (1 − ' + settings.marginPct + '%) <span class="chip assumption">ASSUMPTION</span> — replace with the invoice price if you have it.</p>' : '') +
+        '<p>Cost pre-filled as ' + rs(Calc.costFromMrp(p.mrp, settings.marginPct)) + ' = MRP × (1 − ' + settings.marginPct + '%) <span class="chip asm">ASSUMPTION</span> — replace with the invoice price if you have it.</p>' : '') +
       (p.ean && /^2/.test(p.ean) ? '<p>Barcode is a DEMO in-store code (GS1 range 200–299).</p>' : '') +
       (p.fromStock ? '<p>Prices copied from your last batch — check they are still correct.</p>' : '');
   }
@@ -579,7 +716,7 @@
       '<dt>Supplier</dt><dd>' + esc(b.supplier || '—') + '</dd>' +
       '<dt>Shelf</dt><dd>' + esc(b.location || '—') + '</dd>' +
       (b.mrp ? '<dt>MRP</dt><dd>' + rs(b.mrp) + '/unit <span class="source-note">' + esc(b.mrpSource) + '</span></dd>' : '') +
-      (cost !== '' ? '<dt>Cost</dt><dd>' + rs(cost) + '/unit <span class="chip assumption">ASSUMPTION</span> <span class="source-note">MRP × (1 − ' + settings.marginPct + '%)</span></dd>' : '') +
+      (cost !== '' ? '<dt>Cost</dt><dd>' + rs(cost) + '/unit <span class="chip asm">ASSUMPTION</span> <span class="source-note">MRP × (1 − ' + settings.marginPct + '%)</span></dd>' : '') +
       '</dl>';
     $('#labelAdd').disabled = !p;
     $('#labelDialog').showModal();
@@ -639,8 +776,25 @@
     }
   }
 
+  /**
+   * Entry checks before saving: qty < 0 blocks; duplicate (name + batch no.), expiry already passed
+   * and cost 0 each ask for confirmation. Returns true to go ahead.
+   */
+  async function entryChecks(batch) {
+    if (!(Number(batch.qty) >= 0)) { toast('Quantity cannot be negative', 'error'); return false; }
+    const dup = state.batches.some(function (b) {
+      return String(b.name).trim().toLowerCase() === batch.name.trim().toLowerCase() && String(b.batchNo).trim().toUpperCase() === batch.batchNo.trim().toUpperCase();
+    });
+    if (dup && !await ask(batch.name + ' batch ' + batch.batchNo + ' is already in stock. Add it again as a separate row?', 'Add anyway')) return false;
+    const days = Calc.daysToExpiry(batch.expiry);
+    if (days !== null && days < 0 && !await ask('This batch expired ' + plural(Math.abs(days), 'day', 'days') + ' ago. Record it anyway (e.g. to dispose of it)?', 'Record expired batch')) return false;
+    if (!(Number(batch.costPrice) > 0) && !await ask('Cost price is Rs 0.00, so this batch will not count in any rupee total. Save anyway?', 'Save with Rs 0')) return false;
+    return true;
+  }
+
   /** Save a new batch (form or one-tap label). Returns true when saved. */
   async function saveNewBatch(batch) {
+    if (!await entryChecks(batch)) return false;
     setBusy(true);
     try {
       await store.upsertBatch(batch);
@@ -806,6 +960,7 @@
     f.elements.criticalDays.value = settings.criticalDays;
     f.elements.warningDays.value = settings.warningDays;
     f.elements.marginPct.value = settings.marginPct;
+    f.elements.returnWindowDays.value = settings.returnWindowDays;
     f.elements.apiUrl.value = settings.apiUrl;
   }
 
@@ -818,16 +973,16 @@
     if (!(c > 0 && w > c)) { toast('Warning window must be longer than the critical window', 'error'); return; }
     const margin = Number(f.elements.marginPct.value);
     if (!(margin >= 0 && margin < 100)) { toast('Margin must be between 0 and 99 %', 'error'); return; }
+    const win = Number(f.elements.returnWindowDays.value);
+    if (!(win >= 0)) { toast('Return window must be 0 days or more', 'error'); return; }
     const apiUrl = f.elements.apiUrl.value.trim();
     if (apiUrl && !/^https:\/\/script\.google\.com\/.+\/exec$/.test(apiUrl)) {
       toast('API URL should look like https://script.google.com/macros/s/…/exec', 'error');
       return;
     }
     const modeChanged = apiUrl !== settings.apiUrl;
-    settings = Object.assign({}, settings, { pharmacyName: f.elements.pharmacyName.value.trim(), criticalDays: c, warningDays: w, marginPct: margin, apiUrl: apiUrl });
-    saveSettings(settings);
-    toast(modeChanged ? 'Saved — sign out and in again to use the new server' : 'Settings saved', 'ok');
-    render();
+    settings = Object.assign({}, settings, { pharmacyName: f.elements.pharmacyName.value.trim(), criticalDays: c, warningDays: w, marginPct: margin, returnWindowDays: win, apiUrl: apiUrl });
+    await persistSettings(modeChanged ? 'Saved — sign out and in again to use the new server' : 'Settings saved');
   }
 
   async function onTestApi() {
@@ -852,7 +1007,7 @@
     setBusy(true);
     try {
       await store.upsertBatches(d.batches);
-      const existing = new Set(state.events.map(function (e) { return e.id; }));
+      const existing = new Set((await store.load()).events.map(function (e) { return e.id; }));
       const newEvents = d.events.filter(function (e) { return !existing.has(e.id); });
       if (newEvents.length) await store.addEvents(newEvents);
       toast('Demo pharmacy loaded', 'ok');
@@ -937,8 +1092,17 @@
       if (cmd && cmd.dataset.cmd === 'loadDemo') onLoadDemo();
     });
 
-    // Re-check day counts after midnight / every 5 minutes
-    setInterval(function () { if (session && state.loaded) render(); }, 5 * 60 * 1000);
+    $('#copyReturnsBtn').addEventListener('click', copyReturns);
+    $('#bizForm').addEventListener('submit', onBizSubmit);
+    $('#useRateBtn').addEventListener('click', onUseRate);
+
+    // Auto-refresh every 60 s while the tab is visible (and straight away when it comes back)
+    setInterval(function () {
+      if (session && store && document.visibilityState === 'visible' && !document.querySelector('dialog[open]')) refresh(true);
+    }, SYNC_MS);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible' && session && store && state.lastSync && Date.now() - state.lastSync > SYNC_MS) refresh(true);
+    });
 
     if (session) { store = makeSessionStore(); enterApp(); }
     else if (location.hash === '#demo') signIn('DEMO', '1234', '').then(enterApp);   // deep link for the panel

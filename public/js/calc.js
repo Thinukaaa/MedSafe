@@ -17,6 +17,11 @@
     recovered: 'Recovered (Rs) = Σ value of stock SOLD or RETURNED to supplier while it was within the warning window (0 to {warning} days left). This is stock that would likely have expired without the alert.',
     lost: 'Lost (Rs) = Σ value of stock DISPOSED as expired.',
     recoveryRate: 'Recovery rate = Recovered ÷ (Recovered + Lost) × 100.',
+    returnBy: 'Return by = expiry date − supplier return window ({window} days). Listed for Critical and Warning batches with stock on the shelf, grouped by supplier, earliest date first. ASSUMPTION: return window = {window} days until each supplier confirms theirs.',
+    yearlyLoss: 'Yearly expired loss (Rs) = monthly expired loss (Rs) × 12.',
+    yearlySaving: 'Yearly saving (Rs) = yearly expired loss (Rs) × share prevented (%) ÷ 100.',
+    payback: 'Payback (months) = one-time package price (Rs) ÷ monthly saving (Rs), where monthly saving = monthly expired loss × share prevented.',
+    net3y: '3-year net benefit (Rs) = 3 × yearly saving − one-time package price − 3 × yearly support.',
     costFromMrp: 'Cost price per unit (Rs) = MRP per unit (Rs) × (1 − pharmacy margin %), rounded to 2 decimals. MRP source: NMRA MRP Gazette Extraordinary No. 2336/53 (15 Jun 2023). ASSUMPTION: margin = {margin}% — replace with the figure from the field visit.'
   };
 
@@ -126,6 +131,46 @@
     };
   }
 
+  /**
+   * Supplier returns: for active critical/warning batches, returnBy = expiry − window.
+   * → { groups: [{ supplier, items: [batch + returnBy, daysToReturn], value }], passed: { batches, value } }
+   * Groups and items sorted by earliest return date. Items whose date has passed go to `passed`.
+   */
+  function returnPlan(enriched, settings, ref) {
+    const window = num(settings.returnWindowDays);
+    const t = ref || today();
+    const bySupplier = {};
+    const passed = { batches: 0, value: 0 };
+    enriched.forEach(function (b) {
+      if (num(b.qty) <= 0 || !b.expiryDate || (b.status !== 'critical' && b.status !== 'warning')) return;
+      const returnBy = new Date(b.expiryDate.getFullYear(), b.expiryDate.getMonth(), b.expiryDate.getDate() - window);
+      const daysToReturn = Math.round((returnBy - t) / DAY_MS);
+      if (daysToReturn < 0) { passed.batches += 1; passed.value += b.value; return; }
+      const key = b.supplier || 'Supplier not recorded';
+      (bySupplier[key] = bySupplier[key] || []).push(Object.assign({}, b, { returnBy: returnBy, daysToReturn: daysToReturn }));
+    });
+    const groups = Object.keys(bySupplier).map(function (s) {
+      const items = bySupplier[s].sort(function (a, b) { return a.returnBy - b.returnBy; });
+      return { supplier: s, items: items, value: items.reduce(function (a, b) { return a + b.value; }, 0) };
+    }).sort(function (a, b) { return a.items[0].returnBy - b.items[0].returnBy || (a.supplier < b.supplier ? -1 : 1); });
+    return { groups: groups, passed: passed };
+  }
+
+  /** Business case from owner inputs. Missing inputs → null outputs (never guessed). */
+  function businessCase(i) {
+    const monthly = num(i.monthlyLoss), share = num(i.sharePct), price = num(i.packagePrice), support = num(i.yearlySupport);
+    const yearlyLoss = monthly * 12;
+    const yearlySaving = yearlyLoss * share / 100;
+    const monthlySaving = monthly * share / 100;
+    return {
+      yearlyLoss: monthly > 0 ? yearlyLoss : null,
+      yearlySaving: monthly > 0 && share > 0 ? yearlySaving : null,
+      monthlySaving: monthly > 0 && share > 0 ? monthlySaving : null,
+      paybackMonths: monthlySaving > 0 && price > 0 ? price / monthlySaving : null,
+      net3y: monthly > 0 && share > 0 && price > 0 ? 3 * yearlySaving - price - 3 * support : null
+    };
+  }
+
   /** Cost from MRP and an assumed margin (%). */
   function costFromMrp(mrp, marginPct) {
     return Math.round(num(mrp) * (1 - num(marginPct) / 100) * 100) / 100;
@@ -145,7 +190,7 @@
 
   const api = {
     FORMULAS, DEFAULT_SETTINGS, today, toISODate, parseExpiry, daysToExpiry, status,
-    valueAtCost, enrich, summary, fefo, impact, costFromMrp, formula
+    valueAtCost, enrich, summary, fefo, impact, costFromMrp, returnPlan, businessCase, formula
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

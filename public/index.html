@@ -124,8 +124,9 @@
             </article>
 
             <article class="card" id="returnsCard">
-              <div class="card-head"><h2>Supplier returns</h2></div>
-              <div id="returnsBody" class="pad"><p class="empty">No supplier returns due.</p></div>
+              <div class="card-head"><h2>Supplier returns</h2><button class="btn ghost small" id="copyReturnsBtn" hidden>Copy for WhatsApp</button></div>
+              <div id="returnsBody" class="returns"><div class="skel-row"></div></div>
+              <details class="foot"><summary>How is this calculated?</summary><p data-formula="returnBy"></p></details>
             </article>
 
             <article class="card">
@@ -249,6 +250,8 @@
         <section class="panel" id="tab-more">
           <div class="more-grid">
             <button class="more-item" data-goto="log"><strong>Action log</strong><span>Every sale, return and disposal</span></button>
+            <button class="more-item" data-goto="business"><strong>Business case</strong><span>Yearly saving, payback, 3-year benefit</span></button>
+            <button class="more-item" data-goto="sources"><strong>Sources &amp; assumptions</strong><span>Where every number comes from</span></button>
             <button class="more-item" data-goto="settings"><strong>Settings</strong><span>Alert windows, server, demo data</span></button>
             <a class="more-item" href="labels.html" target="_blank" rel="noopener"><strong>Print DEMO labels</strong><span>A4 sheet of 24 box labels to scan live</span></a>
           </div>
@@ -267,6 +270,47 @@
           </article>
         </section>
 
+        <!-- ================= BUSINESS CASE ================= -->
+        <section class="panel" id="tab-business">
+          <article class="card narrow">
+            <div class="pad">
+              <p class="assumption" id="bizStaffNote" hidden>View only — the owner edits the business case.</p>
+              <form id="bizForm" class="biz-form">
+                <label>Monthly expired loss (Rs)<input name="monthlyLoss" type="number" min="0" step="1" inputmode="decimal" placeholder="From the field visit"></label>
+                <label>Source<input name="monthlyLossSource" placeholder="e.g. Pharmacist interview, 18 Nov 2026"></label>
+                <label>Share of loss prevented (%) <span class="chip asm">ASSUMPTION</span><input name="sharePct" type="number" min="0" max="100" step="0.1" inputmode="decimal"></label>
+                <label>Source<input name="shareSource" placeholder="ASSUMPTION — or the measured recovery rate"></label>
+                <div class="full"><button type="button" class="btn ghost small" id="useRateBtn">Use measured recovery rate</button> <span class="hint" id="useRateHint"></span></div>
+                <label>One-time package price (Rs)<input name="packagePrice" type="number" min="0" step="1" inputmode="decimal" placeholder="Hardware + setup"></label>
+                <label>Source<input name="priceSource" placeholder="e.g. Parts receipt + setup quote"></label>
+                <label>Yearly support (Rs) <span class="opt">(optional)</span><input name="yearlySupport" type="number" min="0" step="1" inputmode="decimal" placeholder="0"></label>
+                <label>Source<input name="supportSource" placeholder="e.g. Our support plan"></label>
+                <div class="full actions"><button type="submit" class="btn primary">Save business case</button></div>
+              </form>
+              <hr>
+              <div class="biz-out">
+                <div><span class="label">Yearly expired loss</span><span class="val" id="bYearlyLoss">—</span><span class="small-line" data-formula="yearlyLoss"></span></div>
+                <div><span class="label">Yearly saving</span><span class="val good" id="bYearlySaving">—</span><span class="small-line" data-formula="yearlySaving"></span></div>
+                <div><span class="label">Payback</span><span class="val" id="bPayback">—</span><span class="small-line" data-formula="payback"></span></div>
+                <div><span class="label">3-year net benefit</span><span class="val" id="bNet3y">—</span><span class="small-line" data-formula="net3y"></span></div>
+              </div>
+              <p class="source-note" id="bSources"></p>
+            </div>
+          </article>
+        </section>
+
+        <!-- ================= SOURCES & ASSUMPTIONS ================= -->
+        <section class="panel" id="tab-sources">
+          <article class="card">
+            <div class="card-head"><h2>Data sources</h2></div>
+            <div class="table-wrap"><table><thead><tr><th>What</th><th>Source</th><th>Used for</th></tr></thead><tbody id="sourcesBody"></tbody></table></div>
+          </article>
+          <article class="card">
+            <div class="card-head"><h2>Assumptions</h2><span class="hint">Current values — replace them with field-visit figures</span></div>
+            <div class="table-wrap"><table><thead><tr><th>ASSUMPTION</th><th class="num">Current value</th><th>Where to change / how to replace</th></tr></thead><tbody id="assumptionsBody"></tbody></table></div>
+          </article>
+        </section>
+
         <!-- ================= SETTINGS ================= -->
         <section class="panel" id="tab-settings">
           <article class="card narrow">
@@ -277,8 +321,10 @@
                 <label>Critical window (days)<input name="criticalDays" type="number" min="1" step="1" required></label>
                 <label>Warning window (days)<input name="warningDays" type="number" min="1" step="1" required></label>
                 <p class="assumption full"><strong>ASSUMPTION:</strong> default windows are 30 / 90 days. Replace them with what the pharmacist tells you, and note the source in your slides.</p>
-                <label>Pharmacy margin (%) <span class="chip assumption">ASSUMPTION</span><input name="marginPct" type="number" min="0" max="99" step="0.1" required></label>
+                <label>Pharmacy margin (%) <span class="chip asm">ASSUMPTION</span><input name="marginPct" type="number" min="0" max="99" step="0.1" required></label>
                 <p class="assumption">Used only when the real cost is unknown: cost = MRP × (1 − margin). Default 16 % — replace with the figure from the field visit.</p>
+                <label>Supplier return window (days) <span class="chip asm">ASSUMPTION</span><input name="returnWindowDays" type="number" min="0" step="1" required></label>
+                <p class="assumption">Suppliers usually accept returns only until a set number of days before expiry. Default 60 days — ask each supplier.</p>
                 <label class="full">Google Sheet API URL (Apps Script Web App, ends with /exec)
                   <input name="apiUrl" placeholder="Leave empty for the DEMO pharmacy">
                 </label>
