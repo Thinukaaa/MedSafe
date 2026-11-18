@@ -8,18 +8,36 @@
   const $$ = function (s, el) { return Array.from((el || document).querySelectorAll(s)); };
 
   const LS_SETTINGS = 'ms_settings_v1';
+  const SS_SESSION = 'ms_session_v1';
+  const TZ = 'Asia/Colombo';
   const DEFAULTS = {
     pharmacyName: '',
     criticalDays: 30,
     warningDays: 90,
     apiUrl: (window.MS_CONFIG && window.MS_CONFIG.API_URL) || ''
   };
+  const TITLES = {
+    dashboard: 'Dashboard', add: 'Scan & add stock', stock: 'Stock', cold: 'Cold chain', more: 'More',
+    log: 'Action log', settings: 'Settings'
+  };
+  const MORE_TABS = ['more', 'log', 'settings'];
 
-  const SS_SESSION = 'ms_session_v1';
   let settings = loadSettings();
   let session = loadSession();
   let store = null;
-  const state = { batches: [], events: [], lastSync: null, actionBatch: null };
+  const state = { batches: [], events: [], catalogue: [], lastSync: null, loaded: false, actionBatch: null, tab: 'dashboard' };
+
+  // ---------------- Settings ----------------
+  function loadSettings() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}');
+      const s = Object.assign({}, DEFAULTS, saved);
+      s.criticalDays = Number(s.criticalDays) || DEFAULTS.criticalDays;
+      s.warningDays = Number(s.warningDays) || DEFAULTS.warningDays;
+      return s;
+    } catch (e) { return Object.assign({}, DEFAULTS); }
+  }
+  function saveSettings(s) { localStorage.setItem(LS_SETTINGS, JSON.stringify(s)); }
 
   // ---------------- Session (token in sessionStorage) ----------------
   function loadSession() {
@@ -49,7 +67,7 @@
     session = null;
     store = null;
     sessionStorage.removeItem(SS_SESSION);
-    state.batches = []; state.events = []; state.lastSync = null;
+    state.batches = []; state.events = []; state.lastSync = null; state.loaded = false;
     showScreen('start');
     if (message) toast(message, 'error');
   }
@@ -99,58 +117,44 @@
   }
 
   // ---------------- Helpers ----------------
-  function loadSettings() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}');
-      const s = Object.assign({}, DEFAULTS, saved);
-      s.criticalDays = Number(s.criticalDays) || DEFAULTS.criticalDays;
-      s.warningDays = Number(s.warningDays) || DEFAULTS.warningDays;
-      return s;
-    } catch (e) { return Object.assign({}, DEFAULTS); }
-  }
-
-  function saveSettings(s) { localStorage.setItem(LS_SETTINGS, JSON.stringify(s)); }
-
   function esc(v) {
     return String(v === null || v === undefined ? '' : v)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
-
   function rs(n) {
     return 'Rs ' + Number(n || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
-
   function int(n) { return Number(n || 0).toLocaleString('en-LK'); }
-  function batchesTxt(n) { return n + (n === 1 ? ' batch' : ' batches'); }
-
+  function plural(n, one, many) { return int(n) + ' ' + (n === 1 ? one : many); }
   function fmtDate(d) {
     if (!d) return '—';
     return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   }
-
   function fmtDateTime(iso) {
     const d = new Date(iso);
     if (isNaN(d)) return esc(iso);
-    return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString('en-GB', { timeZone: TZ, day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
+  /** "HH:MM" in Sri Lanka time. */
+  function slTime(d) { return d.toLocaleTimeString('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }); }
 
+  let idSeq = 0;
+  /** Unique id from the clock + a counter (no random numbers). */
   function newId(prefix) {
-    const r = (window.crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10);
-    return prefix + '-' + Date.now().toString(36) + '-' + r;
+    idSeq += 1;
+    return prefix + '-' + Date.now().toString(36) + '-' + idSeq.toString(36) + '-' + (session ? session.shopId : 'X');
   }
-
   function daysLabel(d) {
     if (d === null || d === undefined) return '—';
-    if (d < 0) return Math.abs(d) + ' days ago';
+    if (d < 0) return plural(Math.abs(d), 'day', 'days') + ' ago';
     if (d === 0) return 'Today';
-    return d + ' days';
+    return plural(d, 'day', 'days') + ' left';
   }
 
   const STATUS_TEXT = { expired: 'Expired', critical: 'Critical', warning: 'Warning', ok: 'OK', unknown: 'No date' };
-
   function statusChip(s) { return '<span class="chip ' + s + '">' + STATUS_TEXT[s] + '</span>'; }
-  function demoChip(b) { return b.demo ? ' <span class="chip demo">DEMO</span>' : ''; }
+  function demoChip(x) { return x.demo ? ' <span class="chip demo">DEMO</span>' : ''; }
 
   let toastTimer;
   function toast(msg, type) {
@@ -161,22 +165,44 @@
     toastTimer = setTimeout(function () { t.className = ''; }, 3500);
   }
 
+  /** Friendly confirm dialog → Promise<boolean>. */
+  function ask(message, okText) {
+    return new Promise(function (resolve) {
+      const dlg = $('#askDialog');
+      $('#askText').textContent = message;
+      $('#askOk').textContent = okText || 'Continue';
+      function done(v) {
+        $('#askOk').onclick = null; $('#askCancel').onclick = null; dlg.oncancel = null;
+        if (dlg.open) dlg.close();
+        resolve(v);
+      }
+      $('#askOk').onclick = function () { done(true); };
+      $('#askCancel').onclick = function () { done(false); };
+      dlg.oncancel = function () { done(false); };
+      dlg.showModal();
+      $('#askOk').focus();
+    });
+  }
+
   function setBusy(on) { document.body.classList.toggle('busy', !!on); }
 
   // ---------------- Data ----------------
   async function refresh(silent) {
+    if (!store) return;
     setBusy(true);
     try {
       const d = await store.load();
       state.batches = d.batches.map(normaliseBatch);
       state.events = d.events;
       state.lastSync = new Date();
+      state.loaded = true;
       render();
-      if (!silent) toast('Data loaded', 'ok');
+      if (!silent) toast('Up to date', 'ok');
     } catch (e) {
       console.error(e);
       if (e.unauthorized) { signOut('Session expired — please sign in again'); return; }
       toast('Could not load data: ' + e.message, 'error');
+      state.loaded = true;
       render();
     } finally {
       setBusy(false);
@@ -200,16 +226,15 @@
     renderDashboard(enriched);
     renderStock(enriched);
     renderLog();
+    renderSuppliers();
   }
 
   function renderHeader() {
     $('#pharmacyName').textContent = settings.pharmacyName || (isDemoMode() ? 'DEMO pharmacy' : 'Shop ' + session.shopId);
     const badge = $('#modeBadge');
-    badge.textContent = store.label;
+    badge.textContent = isDemoMode() ? 'DEMO' : 'Live · Google Sheet';
     badge.className = 'mode-badge ' + store.mode;
-    $('#asOf').textContent = state.lastSync
-      ? 'Data as of ' + state.lastSync.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' (Sri Lanka time)'
-      : 'Not loaded';
+    $('#asOf').textContent = state.lastSync ? 'Last synced ' + slTime(state.lastSync) + ' Sri Lanka time' : 'Not synced yet';
     $('#kCriticalTitle').textContent = 'Critical · 0–' + settings.criticalDays + ' days';
     $('#kWarningTitle').textContent = 'Warning · ' + (settings.criticalDays + 1) + '–' + settings.warningDays + ' days';
   }
@@ -220,58 +245,76 @@
     });
   }
 
+  function setKpi(key, g) {
+    $('#k' + key + 'Val').textContent = rs(g.value);
+    $('#k' + key + 'Sub').textContent = plural(g.batches, 'batch', 'batches') + ' · ' + plural(g.units, 'unit', 'units');
+  }
+
+  /** One batch row (used by Sell-first and Stock lists). */
+  function itemHtml(b, opts) {
+    const closed = b.qty <= 0;
+    const meta = ['Batch ' + esc(b.batchNo), b.location ? 'Shelf ' + esc(b.location) : '', b.supplier ? esc(b.supplier) : '']
+      .filter(Boolean).join(' · ');
+    return '<button type="button" class="item ' + (closed ? 'closed' : 'row-' + b.status) + '" data-act="' + esc(b.id) + '">' +
+      '<span><strong>' + esc(b.name) + '</strong> <span class="muted">' + esc(b.strength) + '</span>' + demoChip(b) +
+        '<span class="sub">' + meta + '</span></span>' +
+      '<span class="col-exp">' + (closed ? '<span class="chip closed">Closed</span>' : statusChip(b.status)) +
+        '<span class="sub">' + daysLabel(b.daysLeft) + ' · ' + fmtDate(b.expiryDate) + '</span></span>' +
+      '<span class="col-qty num">' + plural(b.qty, 'unit', 'units') + (opts && opts.cost ? '<span class="sub">' + rs(b.costPrice) + '/unit</span>' : '') + '</span>' +
+      '<span class="col-val num"><strong>' + rs(b.value) + '</strong><span class="sub">at cost</span></span>' +
+      '</button>';
+  }
+
+  function emptyState(title, text, buttons) {
+    return '<div class="empty-state"><strong>' + esc(title) + '</strong>' + esc(text) +
+      (buttons ? '<div class="actions">' + buttons + '</div>' : '') + '</div>';
+  }
+
   function renderDashboard(enriched) {
     const s = Calc.summary(enriched);
+    setKpi('Expired', s.expired);
+    setKpi('Critical', s.critical);
+    setKpi('Warning', s.warning);
+    setKpi('Total', s.total);
 
-    $('#kExpiredVal').textContent = rs(s.expired.value);
-    $('#kExpiredSub').textContent = batchesTxt(s.expired.batches) + ' · ' + int(s.expired.units) + ' units';
-    $('#kCriticalVal').textContent = rs(s.critical.value);
-    $('#kCriticalSub').textContent = batchesTxt(s.critical.batches) + ' · ' + int(s.critical.units) + ' units';
-    $('#kWarningVal').textContent = rs(s.warning.value);
-    $('#kWarningSub').textContent = batchesTxt(s.warning.batches) + ' · ' + int(s.warning.units) + ' units';
-    $('#kTotalVal').textContent = rs(s.total.value);
-    $('#kTotalSub').textContent = batchesTxt(s.total.batches) + ' · ' + int(s.total.units) + ' units';
-
-    // 10-second headline
+    // 10-second headline: one sentence
     const h = $('#headline');
     if (!state.batches.length) {
       h.className = 'headline empty';
-      h.innerHTML = 'No stock recorded yet. Go to <strong>+ Add stock</strong>, or load sample data in Settings to try it.';
+      h.textContent = 'No stock recorded yet — scan your first box to start.';
     } else if (s.expired.batches) {
       h.className = 'headline bad';
-      h.innerHTML = '<strong>' + s.expired.batches + ' expired batch' + (s.expired.batches > 1 ? 'es' : '') + '</strong> still on the shelf (' + rs(s.expired.value) + '). Remove now for patient safety.';
+      h.innerHTML = '<strong>' + plural(s.expired.batches, 'expired batch', 'expired batches') + '</strong> still on the shelf (' + rs(s.expired.value) + ') — remove now for patient safety.';
     } else if (s.critical.batches) {
       h.className = 'headline warn';
-      h.innerHTML = '<strong>' + rs(s.critical.value) + '</strong> of stock expires within ' + settings.criticalDays + ' days. Sell first or return to supplier.';
+      h.innerHTML = '<strong>' + rs(s.critical.value) + '</strong> of stock expires within ' + settings.criticalDays + ' days — sell it first or return it.';
     } else {
       h.className = 'headline good';
-      h.innerHTML = 'All good. Nothing expires in the next ' + settings.criticalDays + ' days.';
+      h.textContent = 'All good — nothing expires in the next ' + settings.criticalDays + ' days.';
     }
-    if (state.batches.some(function (b) { return b.demo; })) {
-      h.innerHTML += ' <span class="chip demo">DEMO DATA LOADED</span>';
-    }
+    if (state.batches.some(function (b) { return b.demo; })) h.innerHTML += ' <span class="chip demo">DEMO DATA</span>';
 
-    // FEFO list: everything not OK, earliest first (max 12)
-    const list = Calc.fefo(enriched).filter(function (b) { return b.status !== 'ok'; }).slice(0, 12);
-    $('#fefoBody').innerHTML = list.length ? list.map(function (b) {
-      return '<tr class="row-' + b.status + '">' +
-        '<td><strong>' + esc(b.name) + '</strong><br><span class="muted">' + esc(b.strength) + '</span>' + demoChip(b) + '</td>' +
-        '<td class="nowrap">' + esc(b.batchNo) + '</td>' +
-        '<td>' + esc(b.location) + '</td>' +
-        '<td>' + fmtDate(b.expiryDate) + '</td>' +
-        '<td class="num">' + statusChip(b.status) + '<br>' + daysLabel(b.daysLeft) + '</td>' +
-        '<td class="num">' + int(b.qty) + '</td>' +
-        '<td class="num">' + rs(b.value) + '</td>' +
-        '<td><button class="btn small" data-act="' + esc(b.id) + '">Action</button></td>' +
-        '</tr>';
-    }).join('') : '<tr><td colspan="8" class="muted center">Nothing near expiry within ' + settings.warningDays + ' days.</td></tr>';
+    // Sell-first: expired first (remove), then critical/warning by expiry (FEFO)
+    const ordered = Calc.fefo(enriched);
+    const expired = ordered.filter(function (b) { return b.status === 'expired'; });
+    const sell = ordered.filter(function (b) { return b.status === 'critical' || b.status === 'warning'; }).slice(0, 10);
+    let html = '';
+    if (expired.length) html += '<p class="list-label bad">Remove from shelf — do not sell</p>' + expired.map(itemHtml).join('');
+    if (sell.length) html += '<p class="list-label">Sell these first</p>' + sell.map(itemHtml).join('');
+    if (!html) {
+      html = state.batches.length
+        ? emptyState('Nothing to rush', 'No batch expires within ' + settings.warningDays + ' days.')
+        : emptyState('No stock yet', 'Scan a box or load the demo pharmacy to see how it works.',
+          '<button class="btn primary" data-goto="add">Scan a box</button>' + (isOwner() ? '<button class="btn ghost" data-cmd="loadDemo">Load demo pharmacy</button>' : ''));
+    }
+    $('#fefoList').innerHTML = html;
 
     // Impact
     const im = Calc.impact(state.events, settings);
     $('#iRecovered').textContent = rs(im.recovered);
-    $('#iRecoveredSub').textContent = int(im.recoveredUnits) + ' units sold or returned in time';
+    $('#iRecoveredSub').textContent = plural(im.recoveredUnits, 'unit', 'units') + ' sold or returned in time';
     $('#iLost').textContent = rs(im.lost);
-    $('#iLostSub').textContent = int(im.lostUnits) + ' units disposed';
+    $('#iLostSub').textContent = plural(im.lostUnits, 'unit', 'units') + ' disposed';
     $('#iRate').textContent = im.rate === null ? 'No actions yet' : im.rate.toFixed(1) + ' %';
   }
 
@@ -286,67 +329,185 @@
         return [b.name, b.strength, b.batchNo, b.location, b.supplier, b.barcode].join(' ').toLowerCase().indexOf(q) !== -1;
       })
       .sort(function (a, b) { return (a.expiryDate || 0) - (b.expiryDate || 0); });
-
-    $('#stockBody').innerHTML = rows.length ? rows.map(function (b) {
-      const closed = b.qty <= 0;
-      return '<tr class="' + (closed ? 'closed' : 'row-' + b.status) + '">' +
-        '<td><strong>' + esc(b.name) + '</strong><br><span class="muted">' + esc(b.strength) + '</span>' + demoChip(b) + '</td>' +
-        '<td class="nowrap">' + esc(b.batchNo) + '</td>' +
-        '<td>' + esc(b.location) + '</td>' +
-        '<td>' + fmtDate(b.expiryDate) + '</td>' +
-        '<td class="num">' + (closed ? '<span class="chip closed">Closed</span>' : statusChip(b.status)) + '<br>' + daysLabel(b.daysLeft) + '</td>' +
-        '<td class="num">' + int(b.qty) + '</td>' +
-        '<td class="num">' + rs(b.costPrice) + '</td>' +
-        '<td class="num">' + rs(b.value) + '</td>' +
-        '<td class="muted">' + esc(b.source) + '</td>' +
-        '<td><button class="btn small" data-act="' + esc(b.id) + '">Action</button></td>' +
-        '</tr>';
-    }).join('') : '<tr><td colspan="10" class="muted center">No batches match.</td></tr>';
+    $('#stockList').innerHTML = rows.length
+      ? rows.map(function (b) { return itemHtml(b, { cost: true }); }).join('')
+      : (state.batches.length ? emptyState('No match', 'Try another name, batch or shelf.') :
+        emptyState('No stock yet', 'Scan your first box to start.', '<button class="btn primary" data-goto="add">Scan a box</button>'));
   }
 
   function renderLog() {
     const rows = state.events.slice().sort(function (a, b) { return new Date(b.ts) - new Date(a.ts); });
     const label = { SOLD: 'Sold', RETURNED: 'Returned to supplier', DISPOSED: 'Disposed (expired)', ADJUST: 'Count correction' };
     $('#logBody').innerHTML = rows.length ? rows.map(function (e) {
-      const sample = (e.demo === true || e.demo === 'TRUE' || e.demo === 'true') ? ' <span class="chip demo">DEMO</span>' : '';
+      const demo = (e.demo === true || e.demo === 'TRUE' || e.demo === 'true') ? ' <span class="chip demo">DEMO</span>' : '';
       return '<tr>' +
-        '<td>' + fmtDateTime(e.ts) + '</td>' +
-        '<td>' + esc(e.name) + sample + '</td>' +
+        '<td class="nowrap">' + fmtDateTime(e.ts) + '</td>' +
+        '<td>' + esc(e.name) + demo + '</td>' +
         '<td>' + esc(e.batchNo) + '</td>' +
         '<td>' + esc(label[e.type] || e.type) + '</td>' +
         '<td class="num">' + int(e.qty) + '</td>' +
         '<td class="num">' + rs(e.value) + '</td>' +
         '<td class="num">' + daysLabel(e.daysToExpiry === '' ? null : Number(e.daysToExpiry)) + '</td>' +
-        '<td class="muted">' + esc(e.note) + '</td>' +
+        '<td class="muted">' + esc([e.by, e.note].filter(Boolean).join(' · ')) + '</td>' +
         '</tr>';
     }).join('') : '<tr><td colspan="8" class="muted center">No actions recorded yet.</td></tr>';
   }
 
-  // ---------------- Tabs ----------------
-  function showTab(name) {
-    $$('.tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === name); });
-    $$('.panel').forEach(function (p) { p.classList.toggle('active', p.id === 'tab-' + name); });
-    if (name === 'settings') fillSettingsForm();
+  function renderSuppliers() {
+    const names = {};
+    state.batches.forEach(function (b) { if (b.supplier) names[b.supplier] = true; });
+    $('#supplierList').innerHTML = Object.keys(names).sort().map(function (n) { return '<option value="' + esc(n) + '">'; }).join('');
   }
 
-  // ---------------- Add stock ----------------
+  // ---------------- Navigation ----------------
+  function showTab(name) {
+    state.tab = name;
+    const navKey = MORE_TABS.indexOf(name) !== -1 ? 'more' : name;
+    $$('.nav-item').forEach(function (t) {
+      const on = t.dataset.tab === navKey;
+      t.classList.toggle('active', on);
+      if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
+    });
+    $$('.panel').forEach(function (p) { p.classList.toggle('active', p.id === 'tab-' + name); });
+    $('#pageTitle').textContent = TITLES[name] || 'MedSafe';
+    if (name === 'settings') fillSettingsForm();
+    if (name === 'add' && $('#addStep2').hidden) setTimeout(function () { $('#productSearch').focus(); }, 50);
+    window.scrollTo(0, 0);
+  }
+
+  // ---------------- Add stock: step 1 (find product) ----------------
+  /** Catalogue products + products already seen in stock (for items not in the catalogue). */
+  function products() {
+    const seen = {};
+    const list = state.catalogue.slice();
+    list.forEach(function (p) { seen[(p.name + '|' + p.strength).toLowerCase()] = true; });
+    state.batches.forEach(function (b) {
+      const k = (b.name + '|' + b.strength).toLowerCase();
+      if (seen[k]) return;
+      seen[k] = true;
+      list.push({ id: '', name: b.name, strength: b.strength, form: b.form || '', ean: b.barcode || '', mrp: b.mrp || '', mrpSource: b.mrpSource || '', fromStock: b });
+    });
+    return list;
+  }
+
+  let comboItems = [], comboIndex = -1;
+  function onProductInput() {
+    const q = $('#productSearch').value.trim().toLowerCase();
+    const list = $('#productList');
+    if (q.length < 2) { closeCombo(); return; }
+    const words = q.split(/\s+/);
+    comboItems = products().filter(function (p) {
+      const hay = (p.name + ' ' + p.strength + ' ' + p.form + ' ' + p.ean).toLowerCase();
+      return words.every(function (w) { return hay.indexOf(w) !== -1; });
+    }).slice(0, 8);
+    comboIndex = comboItems.length ? 0 : -1;
+    list.innerHTML = comboItems.length ? comboItems.map(function (p, i) {
+      return '<li role="option" id="opt-' + i + '" data-i="' + i + '" aria-selected="' + (i === comboIndex) + '"><span><strong>' + esc(p.name) + '</strong> ' + esc(p.strength) +
+        '<br><span class="sub">' + esc(p.form || 'From your stock') + '</span></span>' +
+        '<span class="sub">' + (p.mrp ? 'MRP ' + rs(p.mrp) : '') + '</span></li>';
+    }).join('') : '<li class="sub" aria-disabled="true">No match — use “Enter details manually”.</li>';
+    list.hidden = false;
+    $('#productSearch').setAttribute('aria-expanded', 'true');
+    syncComboActive();
+  }
+  function syncComboActive() {
+    $$('#productList [role=option]').forEach(function (li, i) { li.setAttribute('aria-selected', String(i === comboIndex)); });
+    $('#productSearch').setAttribute('aria-activedescendant', comboIndex >= 0 ? 'opt-' + comboIndex : '');
+  }
+  function closeCombo() {
+    $('#productList').hidden = true;
+    $('#productSearch').setAttribute('aria-expanded', 'false');
+    comboItems = []; comboIndex = -1;
+  }
+  function onProductKey(e) {
+    if ($('#productList').hidden || !comboItems.length) return;
+    if (e.key === 'ArrowDown') { comboIndex = (comboIndex + 1) % comboItems.length; syncComboActive(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { comboIndex = (comboIndex - 1 + comboItems.length) % comboItems.length; syncComboActive(); e.preventDefault(); }
+    else if (e.key === 'Enter' && comboIndex >= 0) { e.preventDefault(); pickProduct(comboItems[comboIndex]); }
+    else if (e.key === 'Escape') closeCombo();
+  }
+
+  function pickProduct(p, extra) {
+    closeCombo();
+    $('#productSearch').value = '';
+    const f = $('#addForm');
+    f.reset();
+    const prev = p && p.fromStock;
+    if (p) {
+      f.elements.productId.value = p.id || '';
+      f.elements.name.value = p.name;
+      f.elements.strength.value = p.strength + (p.form ? ' · ' + p.form : '');
+      f.elements.form.value = p.form || '';
+      f.elements.barcode.value = p.ean || '';
+      f.elements.mrp.value = p.mrp || '';
+      f.elements.mrpSource.value = p.mrpSource || '';
+      if (p.mrp) f.elements.sellPrice.value = p.mrp;
+      if (prev) {
+        ['costPrice', 'sellPrice', 'supplier', 'location'].forEach(function (k) { if (prev[k] !== '' && prev[k] !== undefined) f.elements[k].value = prev[k]; });
+        if (prev.costSource) f.elements.costSource.value = prev.costSource;
+      }
+    }
+    Object.keys(extra || {}).forEach(function (k) { if (f.elements[k] && extra[k] !== undefined && extra[k] !== '') f.elements[k].value = extra[k]; });
+    renderProductCard(p);
+    goStep(2);
+  }
+
+  function renderProductCard(p) {
+    const card = $('#productCard');
+    if (!p) { card.innerHTML = '<h3>New product</h3><p>Type the details from the box label.</p>'; return; }
+    card.innerHTML = '<h3>' + esc(p.name) + ' <span class="muted">' + esc(p.strength) + '</span></h3>' +
+      '<p>' + esc(p.form || '') + (p.ean ? ' · Barcode ' + esc(p.ean) : '') + '</p>' +
+      (p.mrp ? '<p><strong>MRP ' + rs(p.mrp) + ' per unit</strong> — source: ' + esc(p.mrpSource) + '</p>' : '') +
+      (p.fromStock ? '<p>Prices copied from your last batch — check they are still correct.</p>' : '');
+  }
+
+  function goStep(n) {
+    $('#addStep1').hidden = n !== 1;
+    $('#addStep2').hidden = n !== 2;
+    $('#stepDot1').className = n === 1 ? 'active' : 'done';
+    $('#stepDot2').className = n === 2 ? 'active' : '';
+    if (n === 2) {
+      const f = $('#addForm');
+      const first = !f.elements.name.value ? f.elements.name : (!f.elements.batchNo.value ? f.elements.batchNo : (!f.elements.expiry.value ? f.elements.expiry : f.elements.qty));
+      setTimeout(function () { first.focus(); }, 50);
+    }
+  }
+
+  /** Look up a scanned code: catalogue EAN first, then earlier batches with the same barcode. */
+  function onCode(raw) {
+    const code = String(raw || '').trim();
+    if (!code) return;
+    showTab('add');
+    const p = products().filter(function (x) { return x.ean && String(x.ean) === code; })[0];
+    if (p) { pickProduct(p); toast('Found: ' + p.name + ' ' + p.strength, 'ok'); return; }
+    pickProduct(null, { barcode: code });
+    toast('New barcode — enter the product details once', '');
+  }
+
+  // ---------------- Add stock: step 2 (save) ----------------
   async function onAddSubmit(ev) {
     ev.preventDefault();
     const f = ev.target;
     const fd = new FormData(f);
-    const expiry = String(fd.get('expiry') || '');
-    if (!Calc.parseExpiry(expiry)) { toast('Please enter a valid expiry month', 'error'); return; }
+    const month = String(fd.get('expiry') || '');
+    const day = String(fd.get('expiryDay') || '').trim();
+    const expiry = day ? month + '-' + day.padStart(2, '0') : month;
+    if (!Calc.parseExpiry(expiry)) { toast('Please enter a valid expiry month (and day)', 'error'); return; }
     const now = new Date().toISOString();
     const batch = {
       id: newId('B'),
       name: String(fd.get('name')).trim(),
       strength: String(fd.get('strength') || '').trim(),
+      form: String(fd.get('form') || '').trim(),
       barcode: String(fd.get('barcode') || '').trim(),
       batchNo: String(fd.get('batchNo')).trim(),
       expiry: expiry,
       qty: Number(fd.get('qty')),
       costPrice: Number(fd.get('costPrice')),
+      costSource: String(fd.get('costSource') || ''),
       sellPrice: fd.get('sellPrice') === '' ? '' : Number(fd.get('sellPrice')),
+      mrp: fd.get('mrp') === '' ? '' : Number(fd.get('mrp')),
+      mrpSource: String(fd.get('mrpSource') || ''),
       supplier: String(fd.get('supplier') || '').trim(),
       location: String(fd.get('location') || '').trim(),
       source: String(fd.get('source')),
@@ -359,34 +520,24 @@
       await store.upsertBatch(batch);
       toast('Saved: ' + batch.name + ' (' + batch.batchNo + ')', 'ok');
       f.reset();
+      goStep(1);
       await refresh(true);
       showTab('dashboard');
     } catch (e) {
+      if (e.unauthorized) { signOut('Session expired — please sign in again'); return; }
       toast('Save failed: ' + e.message, 'error');
     } finally {
       setBusy(false);
     }
   }
 
-  // Auto-fill from an earlier batch with the same barcode
-  function onBarcodeChange() {
-    const code = $('#barcodeInput').value.trim();
-    if (!code) return;
-    const prev = state.batches.slice().reverse().find(function (b) { return String(b.barcode) === code; });
-    if (!prev) return;
-    const f = $('#addForm');
-    ['name', 'strength', 'costPrice', 'sellPrice', 'supplier', 'location'].forEach(function (k) {
-      if (f.elements[k] && !f.elements[k].value) f.elements[k].value = prev[k];
-    });
-    toast('Filled from earlier batch of ' + prev.name + ' — check the price is still correct', 'ok');
-  }
-
-  // ---------------- Barcode camera (Chrome on Android/macOS) ----------------
+  // ---------------- Barcode camera (BarcodeDetector) ----------------
   let scanStream = null, scanning = false;
   async function startScan() {
     const dlg = $('#scanDialog');
     try {
-      const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'upc_a', 'upc_e', 'qr_code'] });
+      if (!('BarcodeDetector' in window)) throw new Error('this browser has no barcode reader — type or search instead');
+      const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'qr_code', 'data_matrix'] });
       scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       const video = $('#scanVideo');
       video.srcObject = scanStream;
@@ -397,12 +548,7 @@
         if (!scanning) return;
         try {
           const codes = await detector.detect(video);
-          if (codes.length) {
-            $('#barcodeInput').value = codes[0].rawValue;
-            stopScan();
-            onBarcodeChange();
-            return;
-          }
+          if (codes.length) { stopScan(); onCode(codes[0].rawValue); return; }
         } catch (e) { /* keep trying */ }
         requestAnimationFrame(loop);
       };
@@ -421,18 +567,18 @@
   }
 
   // ---------------- Actions (sold / returned / disposed) ----------------
-  function openAction(id) {
+  function openAction(id, type) {
     const b = state.batches.find(function (x) { return x.id === id; });
     if (!b) return;
     state.actionBatch = b;
     const days = Calc.daysToExpiry(b.expiry);
     $('#actionTitle').textContent = b.name + ' · ' + b.batchNo;
-    $('#actionInfo').textContent = 'On shelf: ' + int(b.qty) + ' units · Cost ' + rs(b.costPrice) + '/unit · Expiry ' +
-      fmtDate(Calc.parseExpiry(b.expiry)) + ' (' + daysLabel(days) + ')';
+    $('#actionInfo').textContent = 'On shelf: ' + plural(b.qty, 'unit', 'units') + ' · Cost ' + rs(b.costPrice) + '/unit · Expiry ' +
+      fmtDate(Calc.parseExpiry(b.expiry)) + ' (' + daysLabel(days) + ')' + (b.demo ? ' · DEMO' : '');
     const f = $('#actionForm');
     f.reset();
-    f.elements.type.value = days !== null && days < 0 ? 'DISPOSED' : 'SOLD';
-    f.elements.qty.max = b.qty;
+    f.elements.type.value = type || (days !== null && days < 0 ? 'DISPOSED' : 'SOLD');
+    f.elements.qty.value = 1;
     updateQtyLabel();
     $('#actionDialog').showModal();
   }
@@ -441,8 +587,16 @@
     const f = $('#actionForm');
     const adj = f.elements.type.value === 'ADJUST';
     $('#qtyLabel').textContent = adj ? 'New counted quantity on shelf (units)' : 'Quantity (units)';
-    if (adj) f.elements.qty.removeAttribute('max');
+    if (adj) { f.elements.qty.removeAttribute('max'); if (state.actionBatch) f.elements.qty.value = state.actionBatch.qty; }
     else if (state.actionBatch) f.elements.qty.max = state.actionBatch.qty;
+  }
+
+  function onStep(e) {
+    const btn = e.target.closest('[data-step]');
+    if (!btn) return;
+    const input = $('#actionForm').elements.qty;
+    const max = input.max === '' ? Infinity : Number(input.max);
+    input.value = Math.max(0, Math.min(max, (Number(input.value) || 0) + Number(btn.dataset.step)));
   }
 
   async function onActionSubmit(ev) {
@@ -474,16 +628,18 @@
       value: Math.round(moved * b.costPrice * 100) / 100,
       daysToExpiry: days,
       note: String(f.elements.note.value || '').trim(),
-      demo: !!b.demo
+      demo: !!b.demo,
+      by: session.name
     };
     const updated = Object.assign({}, b, { qty: newQty, updatedAt: event.ts });
     setBusy(true);
     try {
       await store.addEvent(event, updated);
       $('#actionDialog').close();
-      toast('Recorded', 'ok');
+      toast('Recorded: ' + plural(Math.abs(moved), 'unit', 'units') + ' · ' + rs(Math.abs(event.value)), 'ok');
       await refresh(true);
     } catch (e) {
+      if (e.unauthorized) { signOut('Session expired — please sign in again'); return; }
       toast('Save failed: ' + e.message, 'error');
     } finally {
       setBusy(false);
@@ -492,12 +648,12 @@
 
   async function onDeleteBatch() {
     const b = state.actionBatch;
-    if (!b) return;
-    if (!window.confirm('Delete batch ' + b.batchNo + ' of ' + b.name + '? Use this only for typing mistakes.')) return;
+    if (!b || !isOwner()) return;
+    $('#actionDialog').close();
+    if (!await ask('Delete batch ' + b.batchNo + ' of ' + b.name + '? Use this only for typing mistakes.', 'Delete batch')) return;
     setBusy(true);
     try {
       await store.deleteBatch(b.id);
-      $('#actionDialog').close();
       toast('Batch deleted', 'ok');
       await refresh(true);
     } catch (e) {
@@ -511,10 +667,10 @@
   function exportCsv() {
     const enriched = Calc.enrich(state.batches, settings);
     const head = ['Medicine', 'Strength', 'Barcode', 'Batch', 'Expiry', 'Days left', 'Status', 'Qty (units)',
-      'Cost per unit (Rs)', 'Sell per unit (Rs)', 'Value at cost (Rs)', 'Supplier', 'Shelf', 'Source', 'Demo'];
+      'Cost per unit (Rs)', 'Cost source', 'Sell per unit (Rs)', 'MRP (Rs)', 'MRP source', 'Value at cost (Rs)', 'Supplier', 'Shelf', 'Entry source', 'Demo'];
     const lines = [head].concat(enriched.map(function (b) {
       return [b.name, b.strength, b.barcode, b.batchNo, b.expiry, b.daysLeft, b.status, b.qty,
-        b.costPrice, b.sellPrice, b.value.toFixed(2), b.supplier, b.location, b.source, b.demo ? 'DEMO' : ''];
+        b.costPrice, b.costSource, b.sellPrice, b.mrp, b.mrpSource, b.value.toFixed(2), b.supplier, b.location, b.source, b.demo ? 'DEMO' : ''];
     }));
     const csv = lines.map(function (r) {
       return r.map(function (c) { return '"' + String(c === null || c === undefined ? '' : c).replace(/"/g, '""') + '"'; }).join(',');
@@ -538,6 +694,7 @@
 
   async function onSettingsSubmit(ev) {
     ev.preventDefault();
+    if (!isOwner()) { toast('Only the owner can change settings', 'error'); return; }
     const f = ev.target;
     const c = Number(f.elements.criticalDays.value);
     const w = Number(f.elements.warningDays.value);
@@ -548,16 +705,15 @@
       return;
     }
     const modeChanged = apiUrl !== settings.apiUrl;
-    settings = { pharmacyName: f.elements.pharmacyName.value.trim(), criticalDays: c, warningDays: w, apiUrl: apiUrl };
+    settings = Object.assign({}, settings, { pharmacyName: f.elements.pharmacyName.value.trim(), criticalDays: c, warningDays: w, apiUrl: apiUrl });
     saveSettings(settings);
-    if (modeChanged) toast('Server URL saved — sign out and sign in again to use it', 'ok');
-    toast('Settings saved', 'ok');
-    await refresh(true);
+    toast(modeChanged ? 'Saved — sign out and in again to use the new server' : 'Settings saved', 'ok');
+    render();
   }
 
   async function onTestApi() {
     const url = $('#settingsForm').elements.apiUrl.value.trim();
-    if (!url) { toast('No URL entered — app is in local mode', 'error'); return; }
+    if (!url) { toast('No URL entered — the DEMO pharmacy runs in this browser', 'error'); return; }
     setBusy(true);
     try {
       const r = await window.makeStore(url, function () { return session && session.mode === 'sheet' ? session.token : ''; }).ping();
@@ -569,8 +725,9 @@
     }
   }
 
-  async function onLoadSample() {
-    if (!window.confirm('Load 8 SAMPLE batches? They are clearly marked and can be removed later.')) return;
+  async function onLoadDemo() {
+    if (!isOwner()) return;
+    if (!await ask('Load the DEMO pharmacy? Every demo row is marked DEMO and can be cleared later.', 'Load demo')) return;
     const d = window.SampleData.build();
     setBusy(true);
     try {
@@ -578,25 +735,26 @@
       const existing = new Set(state.events.map(function (e) { return e.id; }));
       const newEvents = d.events.filter(function (e) { return !existing.has(e.id); });
       if (newEvents.length) await store.addEvents(newEvents);
-      toast('Sample data loaded', 'ok');
+      toast('Demo pharmacy loaded', 'ok');
       await refresh(true);
       showTab('dashboard');
     } catch (e) {
-      toast('Could not load sample: ' + e.message, 'error');
+      toast('Could not load demo: ' + e.message, 'error');
     } finally {
       setBusy(false);
     }
   }
 
-  async function onClearSample() {
-    if (!window.confirm('Remove all SAMPLE batches and SAMPLE actions?')) return;
+  async function onClearDemo() {
+    if (!isOwner()) return;
+    if (!await ask('Remove all DEMO batches and DEMO actions?', 'Clear demo data')) return;
     setBusy(true);
     try {
       await store.clearDemo();
-      toast('Sample data removed', 'ok');
+      toast('Demo data removed', 'ok');
       await refresh(true);
     } catch (e) {
-      toast('Could not remove sample: ' + e.message, 'error');
+      toast('Could not remove demo data: ' + e.message, 'error');
     } finally {
       setBusy(false);
     }
@@ -611,40 +769,53 @@
     $('#loginBack').addEventListener('click', function () { showScreen('start'); });
     $('#loginForm').addEventListener('submit', onLoginSubmit);
     $('#logoutBtn').addEventListener('click', function () { signOut(); });
-    $$('.tab').forEach(function (t) { t.addEventListener('click', function () { showTab(t.dataset.tab); }); });
+
+    $$('.nav-item').forEach(function (t) { t.addEventListener('click', function () { showTab(t.dataset.tab); }); });
     $('#refreshBtn').addEventListener('click', function () { refresh(false); });
+
+    $('#productSearch').addEventListener('input', onProductInput);
+    $('#productSearch').addEventListener('keydown', onProductKey);
+    $('#productList').addEventListener('mousedown', function (e) {
+      const li = e.target.closest('[data-i]');
+      if (li) { e.preventDefault(); pickProduct(comboItems[Number(li.dataset.i)]); }
+    });
+    $('#productSearch').addEventListener('blur', function () { setTimeout(closeCombo, 150); });
+    $('#manualBtn').addEventListener('click', function () { pickProduct(null); });
+    $('#addBack').addEventListener('click', function () { goStep(1); });
     $('#addForm').addEventListener('submit', onAddSubmit);
-    $('#barcodeInput').addEventListener('change', onBarcodeChange);
+    $('#scanBtn').addEventListener('click', startScan);
+    $('#scanClose').addEventListener('click', stopScan);
+    $('#scanDialog').addEventListener('cancel', stopScan);
+
     $('#search').addEventListener('input', render);
     $('#statusFilter').addEventListener('change', render);
     $('#exportBtn').addEventListener('click', exportCsv);
     $('#settingsForm').addEventListener('submit', onSettingsSubmit);
     $('#testApiBtn').addEventListener('click', onTestApi);
-    $('#loadSampleBtn').addEventListener('click', onLoadSample);
-    $('#clearSampleBtn').addEventListener('click', onClearSample);
+    $('#loadSampleBtn').addEventListener('click', onLoadDemo);
+    $('#clearSampleBtn').addEventListener('click', onClearDemo);
     $('#actionForm').addEventListener('submit', onActionSubmit);
-    $('#actionForm').elements.type.addEventListener('change', updateQtyLabel);
+    $('#actionType').addEventListener('change', updateQtyLabel);
+    $('#actionForm').addEventListener('click', onStep);
     $('#actionCancel').addEventListener('click', function () { $('#actionDialog').close(); });
     $('#deleteBatchBtn').addEventListener('click', onDeleteBatch);
-    $('#scanClose').addEventListener('click', stopScan);
-    $('#scanDialog').addEventListener('cancel', stopScan);
 
-    // "Action" buttons in tables
+    // Delegated: batch rows, "go to" links and commands
     document.addEventListener('click', function (e) {
-      const btn = e.target.closest('[data-act]');
-      if (btn) openAction(btn.getAttribute('data-act'));
+      const row = e.target.closest('[data-act]');
+      if (row) { openAction(row.getAttribute('data-act')); return; }
+      const go = e.target.closest('[data-goto]');
+      if (go) { showTab(go.getAttribute('data-goto')); return; }
+      const cmd = e.target.closest('[data-cmd]');
+      if (cmd && cmd.dataset.cmd === 'loadDemo') onLoadDemo();
     });
 
-    // Camera scan only where the browser supports it (needs https or localhost)
-    if ('BarcodeDetector' in window && navigator.mediaDevices && window.isSecureContext) {
-      $('#scanBtn').hidden = false;
-      $('#scanBtn').addEventListener('click', startScan);
-    }
-
     // Re-check day counts after midnight / every 5 minutes
-    setInterval(function () { if (session) render(); }, 5 * 60 * 1000);
+    setInterval(function () { if (session && state.loaded) render(); }, 5 * 60 * 1000);
 
-    if (session) { store = makeSessionStore(); enterApp(); } else showScreen('start');
+    if (session) { store = makeSessionStore(); enterApp(); }
+    else if (location.hash === '#demo') signIn('DEMO', '1234', '').then(enterApp);   // deep link for the panel
+    else showScreen('start');
   }
 
   document.addEventListener('DOMContentLoaded', init);

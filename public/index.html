@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MedSafe · Pharmacy Expiry Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>MedSafe · Sell it before it expires</title>
+  <meta name="description" content="MedSafe — expiry and cold-chain tracker for small Sri Lankan pharmacies.">
   <meta name="theme-color" content="#1D4ED8">
   <link rel="icon" href="img/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <a class="skip" href="#main">Skip to content</a>
+
   <!-- ================= START ================= -->
   <section id="startScreen" class="screen" hidden>
     <div class="start-card">
@@ -46,233 +49,299 @@
     </form>
   </section>
 
-  <div id="appRoot" hidden>
-  <div class="demo-banner" role="note">DEMO pharmacy — stock is DEMO data (prices are real NMRA MRPs). Nothing here is a real shop.</div>
-  <header class="topbar">
-    <div class="brand">
-      <svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#1D4ED8"/><path d="M40 22h20v18h18v20H60v18H40V60H22V40h18z" fill="#fff"/></svg>
-      <div>
-        <h1>MedSafe</h1>
-        <p class="sub" id="pharmacyName">Pharmacy expiry tracker</p>
+  <!-- ================= APP ================= -->
+  <div id="appRoot" class="shell" hidden>
+    <aside class="sidebar" aria-label="Main">
+      <div class="side-brand">
+        <svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#1D4ED8"/><path d="M40 22h20v18h18v20H60v18H40V60H22V40h18z" fill="#fff"/></svg>
+        <div><strong>MedSafe</strong><span id="pharmacyName">—</span></div>
       </div>
-    </div>
-    <div class="meta">
-      <span class="mode-badge" id="modeBadge">—</span>
-      <span class="asof" id="asOf">—</span>
-      <button class="btn ghost small" id="refreshBtn" title="Reload data">↻ Refresh</button>
-      <span class="whoami" id="whoami"></span>
-      <button class="btn ghost small" id="logoutBtn">Log out</button>
-    </div>
-  </header>
-
-  <nav class="tabs" role="tablist">
-    <button class="tab active" data-tab="dashboard" role="tab">Dashboard</button>
-    <button class="tab" data-tab="add" role="tab">+ Add stock</button>
-    <button class="tab" data-tab="stock" role="tab">All stock</button>
-    <button class="tab" data-tab="log" role="tab">Action log</button>
-    <button class="tab" data-tab="settings" role="tab">Settings</button>
-  </nav>
-
-  <main>
-    <!-- ================= DASHBOARD ================= -->
-    <section class="panel active" id="tab-dashboard">
-      <div class="headline" id="headline">Loading…</div>
-
-      <div class="kpis">
-        <article class="kpi expired">
-          <h3>Expired on shelf</h3>
-          <p class="big" id="kExpiredVal">—</p>
-          <p class="small-line" id="kExpiredSub">—</p>
-          <details><summary>How is this calculated?</summary><p data-formula="status"></p><p data-formula="valueAtCost"></p></details>
-        </article>
-        <article class="kpi critical">
-          <h3 id="kCriticalTitle">Critical</h3>
-          <p class="big" id="kCriticalVal">—</p>
-          <p class="small-line" id="kCriticalSub">—</p>
-          <details><summary>How is this calculated?</summary><p data-formula="status"></p><p data-formula="valueAtCost"></p></details>
-        </article>
-        <article class="kpi warning">
-          <h3 id="kWarningTitle">Warning</h3>
-          <p class="big" id="kWarningVal">—</p>
-          <p class="small-line" id="kWarningSub">—</p>
-          <details><summary>How is this calculated?</summary><p data-formula="status"></p><p data-formula="valueAtCost"></p></details>
-        </article>
-        <article class="kpi total">
-          <h3>Total stock tracked</h3>
-          <p class="big" id="kTotalVal">—</p>
-          <p class="small-line" id="kTotalSub">—</p>
-          <details><summary>How is this calculated?</summary><p data-formula="totalStock"></p></details>
-        </article>
+      <nav class="nav" id="nav">
+        <button class="nav-item" data-tab="dashboard"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13h8V3H3zm0 8h8v-6H3zm10 0h8V11h-8zm0-18v6h8V3z"/></svg><span>Dashboard</span></button>
+        <button class="nav-item" data-tab="stock"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg><span>Stock</span></button>
+        <button class="nav-item nav-scan" data-tab="add"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5v4h2V5h4V3H5a2 2 0 0 0-2 2zm2 10H3v4a2 2 0 0 0 2 2h4v-2H5zm14 4h-4v2h4a2 2 0 0 0 2-2v-4h-2zm0-16h-4v2h4v4h2V5a2 2 0 0 0-2-2zM7 11h10v2H7z"/></svg><span>Scan</span></button>
+        <button class="nav-item" data-tab="cold"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 13V5a3 3 0 0 0-6 0v8a5 5 0 1 0 6 0zm-3 7a3 3 0 0 1-1.5-5.6l.5-.3V5a1 1 0 0 1 2 0v9.1l.5.3A3 3 0 0 1 12 20z"/></svg><span>Cold chain</span></button>
+        <button class="nav-item" data-tab="more"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg><span>More</span></button>
+      </nav>
+      <div class="side-foot">
+        <span class="whoami" id="whoami"></span>
+        <button class="btn ghost small" id="logoutBtn">Log out</button>
       </div>
+    </aside>
 
-      <div class="grid-2">
-        <article class="card">
-          <div class="card-head">
-            <h2>Sell first (FEFO)</h2>
-            <span class="hint">Earliest expiry at the top</span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Medicine</th><th>Batch</th><th>Shelf</th><th>Expiry</th><th class="num">Days left</th><th class="num">Qty (units)</th><th class="num">Value (Rs)</th><th></th></tr></thead>
-              <tbody id="fefoBody"></tbody>
-            </table>
-          </div>
-          <details class="foot"><summary>How is this list made?</summary><p data-formula="fefo"></p><p data-formula="daysToExpiry"></p></details>
-        </article>
+    <div class="main-col">
+      <div class="demo-banner" role="note"><strong>DEMO</strong> pharmacy — stock and actions are DEMO data (prices are real NMRA MRPs).</div>
+      <header class="topbar">
+        <svg class="logo top-logo" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#1D4ED8"/><path d="M40 22h20v18h18v20H60v18H40V60H22V40h18z" fill="#fff"/></svg>
+        <h1 id="pageTitle">Dashboard</h1>
+        <div class="sync">
+          <span class="mode-badge" id="modeBadge">—</span>
+          <span class="asof" id="asOf">—</span>
+          <button class="btn ghost small" id="refreshBtn" title="Reload data from the server">↻ Update now</button>
+        </div>
+      </header>
 
-        <article class="card">
-          <div class="card-head"><h2>Money saved</h2><span class="hint">From the action log</span></div>
-          <div class="impact">
-            <div><span class="label">Recovered</span><span class="val good" id="iRecovered">—</span><span class="small-line" id="iRecoveredSub"></span></div>
-            <div><span class="label">Lost (expired)</span><span class="val bad" id="iLost">—</span><span class="small-line" id="iLostSub"></span></div>
-            <div><span class="label">Recovery rate</span><span class="val" id="iRate">—</span></div>
-          </div>
-          <details class="foot"><summary>How is this calculated?</summary><p data-formula="recovered"></p><p data-formula="lost"></p><p data-formula="recoveryRate"></p></details>
-        </article>
-      </div>
-    </section>
+      <main id="main" tabindex="-1">
+        <!-- ================= DASHBOARD ================= -->
+        <section class="panel" id="tab-dashboard">
+          <p class="headline skeleton-text" id="headline">Loading your pharmacy…</p>
 
-    <!-- ================= ADD STOCK ================= -->
-    <section class="panel" id="tab-add">
-      <article class="card narrow">
-        <h2>Add a stock batch</h2>
-        <p class="hint">Copy the details from the box label or supplier invoice. One row = one batch number.</p>
-        <form id="addForm" autocomplete="off">
-          <label class="full">Barcode <span class="opt">(optional — USB scanners type straight into this box)</span>
-            <div class="row">
-              <input name="barcode" id="barcodeInput" inputmode="numeric" placeholder="Scan or type barcode">
-              <button type="button" class="btn ghost" id="scanBtn" hidden>📷 Scan</button>
+          <div class="kpis">
+            <article class="kpi expired">
+              <h3>Expired on shelf</h3>
+              <p class="big" id="kExpiredVal"><span class="skel"></span></p>
+              <p class="small-line" id="kExpiredSub"><span class="skel short"></span></p>
+              <details><summary>How is this calculated?</summary><p data-formula="status"></p><p data-formula="valueAtCost"></p></details>
+            </article>
+            <article class="kpi critical">
+              <h3 id="kCriticalTitle">Critical</h3>
+              <p class="big" id="kCriticalVal"><span class="skel"></span></p>
+              <p class="small-line" id="kCriticalSub"><span class="skel short"></span></p>
+              <details><summary>How is this calculated?</summary><p data-formula="status"></p><p data-formula="valueAtCost"></p></details>
+            </article>
+            <article class="kpi warning">
+              <h3 id="kWarningTitle">Warning</h3>
+              <p class="big" id="kWarningVal"><span class="skel"></span></p>
+              <p class="small-line" id="kWarningSub"><span class="skel short"></span></p>
+              <details><summary>How is this calculated?</summary><p data-formula="status"></p><p data-formula="valueAtCost"></p></details>
+            </article>
+            <article class="kpi total">
+              <h3>Total stock tracked</h3>
+              <p class="big" id="kTotalVal"><span class="skel"></span></p>
+              <p class="small-line" id="kTotalSub"><span class="skel short"></span></p>
+              <details><summary>How is this calculated?</summary><p data-formula="totalStock"></p></details>
+            </article>
+          </div>
+
+          <div class="dash-grid">
+            <article class="card span-2">
+              <div class="card-head">
+                <h2>Sell first</h2>
+                <span class="hint">Earliest expiry at the top</span>
+              </div>
+              <div class="list" id="fefoList"><div class="skel-row"></div><div class="skel-row"></div><div class="skel-row"></div></div>
+              <details class="foot"><summary>How is this list made?</summary><p data-formula="fefo"></p><p data-formula="daysToExpiry"></p></details>
+            </article>
+
+            <article class="card" id="returnsCard">
+              <div class="card-head"><h2>Supplier returns</h2></div>
+              <div id="returnsBody" class="pad"><p class="empty">No supplier returns due.</p></div>
+            </article>
+
+            <article class="card">
+              <div class="card-head"><h2>Money saved</h2><span class="hint">From the action log</span></div>
+              <div class="impact">
+                <div><span class="label">Recovered</span><span class="val good" id="iRecovered">—</span><span class="small-line" id="iRecoveredSub"></span></div>
+                <div><span class="label">Lost (expired)</span><span class="val bad" id="iLost">—</span><span class="small-line" id="iLostSub"></span></div>
+                <div><span class="label">Recovery rate</span><span class="val" id="iRate">—</span></div>
+              </div>
+              <details class="foot"><summary>How is this calculated?</summary><p data-formula="recovered"></p><p data-formula="lost"></p><p data-formula="recoveryRate"></p></details>
+            </article>
+
+            <article class="card cold-mini" id="coldMini">
+              <div class="card-head"><h2>Cold chain</h2><button class="btn link" data-goto="cold">Open →</button></div>
+              <div class="pad" id="coldMiniBody"><p class="empty">No fridge sensor connected yet.</p></div>
+            </article>
+          </div>
+        </section>
+
+        <!-- ================= ADD STOCK (2 steps) ================= -->
+        <section class="panel" id="tab-add">
+          <ol class="steps" aria-label="Add stock steps">
+            <li id="stepDot1" class="active">1 · Find product</li>
+            <li id="stepDot2">2 · Batch details</li>
+          </ol>
+
+          <article class="card narrow" id="addStep1">
+            <div class="pad">
+              <button class="btn primary xl" id="scanBtn" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5v4h2V5h4V3H5a2 2 0 0 0-2 2zm2 10H3v4a2 2 0 0 0 2 2h4v-2H5zm14 4h-4v2h4a2 2 0 0 0 2-2v-4h-2zm0-16h-4v2h4v4h2V5a2 2 0 0 0-2-2zM7 11h10v2H7z"/></svg>
+                Scan barcode or label
+              </button>
+              <p class="hint center-text">Camera on phone or laptop. A USB scanner works on any screen — just scan.</p>
+              <div class="or"><span>or search the catalogue</span></div>
+              <div class="combo" id="productCombo">
+                <label for="productSearch" class="sr-only">Search medicine</label>
+                <input id="productSearch" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="productList" autocomplete="off" placeholder="Type a medicine, e.g. amoxicillin">
+                <ul id="productList" role="listbox" class="combo-list" hidden></ul>
+              </div>
+              <button class="btn link" id="manualBtn" type="button">Not in the list? Enter details manually →</button>
             </div>
-          </label>
-          <label>Medicine name *<input name="name" required placeholder="e.g. Paracetamol"></label>
-          <label>Strength / form<input name="strength" placeholder="e.g. 500 mg tablet"></label>
-          <label>Batch / lot no. *<input name="batchNo" required placeholder="As printed on the box"></label>
-          <label>Expiry date *
-            <input name="expiry" type="month" required>
-            <span class="opt">Box shows month/year → we use the last day of that month</span>
-          </label>
-          <label>Quantity on shelf (units) *<input name="qty" type="number" min="0" step="1" required></label>
-          <label>Cost price per unit (Rs) *<input name="costPrice" type="number" min="0" step="0.01" required></label>
-          <label>Selling price per unit (Rs)<input name="sellPrice" type="number" min="0" step="0.01"></label>
-          <label>Supplier<input name="supplier" placeholder="e.g. distributor name"></label>
-          <label>Shelf / location<input name="location" placeholder="e.g. Shelf B2"></label>
-          <label>Where did these numbers come from? *
-            <select name="source" required>
-              <option value="">Choose…</option>
-              <option>Box label</option>
-              <option>Supplier invoice</option>
-              <option>Pharmacist told us (field visit)</option>
-              <option>Stock register / system</option>
-            </select>
-          </label>
-          <div class="full actions">
-            <button type="submit" class="btn primary">Save batch</button>
-            <button type="reset" class="btn ghost">Clear</button>
+          </article>
+
+          <article class="card narrow" id="addStep2" hidden>
+            <div class="pad">
+              <div class="product-card" id="productCard"></div>
+              <form id="addForm" autocomplete="off">
+                <input type="hidden" name="productId">
+                <input type="hidden" name="mrp">
+                <input type="hidden" name="mrpSource">
+                <input type="hidden" name="form">
+                <label>Medicine name *<input name="name" required placeholder="e.g. Paracetamol"></label>
+                <label>Strength / form<input name="strength" placeholder="e.g. 500 mg tablet"></label>
+                <label>Barcode<input name="barcode" inputmode="numeric" placeholder="Scanned or typed"></label>
+                <label>Batch / lot no. *<input name="batchNo" required placeholder="As printed on the box"></label>
+                <label>Expiry month *<input name="expiry" type="month" required>
+                  <span class="opt">Box shows only month/year → the last day of that month is used.</span></label>
+                <label>Expiry day <span class="opt">(optional)</span><input name="expiryDay" type="number" min="1" max="31" step="1" inputmode="numeric" placeholder="e.g. 15"></label>
+                <label>Quantity on shelf (units) *<input name="qty" type="number" min="0" step="1" required inputmode="numeric"></label>
+                <label>Cost price per unit (Rs) *<input name="costPrice" type="number" min="0" step="0.01" required inputmode="decimal"></label>
+                <label>Where did the cost come from? *
+                  <select name="costSource" required>
+                    <option value="">Choose…</option>
+                    <option>Supplier invoice</option>
+                    <option>Box label</option>
+                    <option>Pharmacist told us (field visit)</option>
+                    <option>Stock register / system</option>
+                  </select>
+                </label>
+                <label>Selling price per unit (Rs)<input name="sellPrice" type="number" min="0" step="0.01" inputmode="decimal"></label>
+                <label>Supplier<input name="supplier" list="supplierList" placeholder="e.g. distributor name"></label>
+                <label>Shelf / location<input name="location" placeholder="e.g. A1"></label>
+                <label class="full">How were the batch details entered? *
+                  <select name="source" required>
+                    <option value="">Choose…</option>
+                    <option>Scanned barcode / label</option>
+                    <option>Box label (typed)</option>
+                    <option>Supplier invoice</option>
+                    <option>Pharmacist told us (field visit)</option>
+                  </select>
+                </label>
+                <div class="full actions sticky-actions">
+                  <button type="button" class="btn ghost" id="addBack">← Back</button>
+                  <button type="submit" class="btn primary grow">Save batch</button>
+                </div>
+              </form>
+              <datalist id="supplierList"></datalist>
+            </div>
+          </article>
+        </section>
+
+        <!-- ================= ALL STOCK ================= -->
+        <section class="panel" id="tab-stock">
+          <article class="card">
+            <div class="card-head wrap">
+              <div class="row grow">
+                <label for="search" class="sr-only">Search stock</label>
+                <input id="search" type="search" placeholder="Search medicine, batch, shelf…">
+                <label for="statusFilter" class="sr-only">Status</label>
+                <select id="statusFilter">
+                  <option value="">All statuses</option>
+                  <option value="expired">Expired</option>
+                  <option value="critical">Critical</option>
+                  <option value="warning">Warning</option>
+                  <option value="ok">OK</option>
+                  <option value="empty">Sold out / closed</option>
+                </select>
+              </div>
+              <button class="btn ghost" id="exportBtn">⬇ Export CSV</button>
+            </div>
+            <div class="list" id="stockList"></div>
+          </article>
+        </section>
+
+        <!-- ================= COLD CHAIN ================= -->
+        <section class="panel" id="tab-cold">
+          <article class="card narrow"><div class="pad"><p class="empty">No fridge sensor connected yet.</p></div></article>
+        </section>
+
+        <!-- ================= MORE ================= -->
+        <section class="panel" id="tab-more">
+          <div class="more-grid">
+            <button class="more-item" data-goto="log"><strong>Action log</strong><span>Every sale, return and disposal</span></button>
+            <button class="more-item" data-goto="settings"><strong>Settings</strong><span>Alert windows, server, demo data</span></button>
           </div>
-        </form>
-      </article>
-    </section>
+        </section>
 
-    <!-- ================= ALL STOCK ================= -->
-    <section class="panel" id="tab-stock">
-      <article class="card">
-        <div class="card-head wrap">
-          <h2>All stock</h2>
-          <div class="row">
-            <input id="search" type="search" placeholder="Search medicine, batch, shelf…">
-            <select id="statusFilter">
-              <option value="">All statuses</option>
-              <option value="expired">Expired</option>
-              <option value="critical">Critical</option>
-              <option value="warning">Warning</option>
-              <option value="ok">OK</option>
-              <option value="empty">Sold out / closed</option>
-            </select>
-            <button class="btn ghost" id="exportBtn">⬇ Export CSV</button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Medicine</th><th>Batch</th><th>Shelf</th><th>Expiry</th><th class="num">Days left</th><th class="num">Qty (units)</th><th class="num">Cost/unit (Rs)</th><th class="num">Value (Rs)</th><th>Source</th><th></th></tr></thead>
-            <tbody id="stockBody"></tbody>
-          </table>
-        </div>
-      </article>
-    </section>
+        <!-- ================= ACTION LOG ================= -->
+        <section class="panel" id="tab-log">
+          <article class="card">
+            <div class="card-head"><h2>Action log</h2><span class="hint">Every sale, return or disposal of near-expiry stock</span></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Date &amp; time (Sri Lanka)</th><th>Medicine</th><th>Batch</th><th>Action</th><th class="num">Qty (units)</th><th class="num">Value (Rs)</th><th class="num">Days left then</th><th>By / note</th></tr></thead>
+                <tbody id="logBody"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
 
-    <!-- ================= ACTION LOG ================= -->
-    <section class="panel" id="tab-log">
-      <article class="card">
-        <div class="card-head"><h2>Action log</h2><span class="hint">Every sale, return or disposal of near-expiry stock</span></div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Date &amp; time</th><th>Medicine</th><th>Batch</th><th>Action</th><th class="num">Qty (units)</th><th class="num">Value (Rs)</th><th class="num">Days left then</th><th>Note</th></tr></thead>
-            <tbody id="logBody"></tbody>
-          </table>
-        </div>
-      </article>
-    </section>
+        <!-- ================= SETTINGS ================= -->
+        <section class="panel" id="tab-settings">
+          <article class="card narrow">
+            <div class="pad">
+              <p class="assumption" id="ownerOnlyNote" hidden>Only the owner can change settings.</p>
+              <form id="settingsForm">
+                <label class="full">Pharmacy name<input name="pharmacyName" placeholder="Shown in the header"></label>
+                <label>Critical window (days)<input name="criticalDays" type="number" min="1" step="1" required></label>
+                <label>Warning window (days)<input name="warningDays" type="number" min="1" step="1" required></label>
+                <p class="assumption full"><strong>ASSUMPTION:</strong> default windows are 30 / 90 days. Replace them with what the pharmacist tells you, and note the source in your slides.</p>
+                <label class="full">Google Sheet API URL (Apps Script Web App, ends with /exec)
+                  <input name="apiUrl" placeholder="Leave empty for the DEMO pharmacy">
+                </label>
+                <div class="full actions">
+                  <button type="submit" class="btn primary">Save settings</button>
+                  <button type="button" class="btn ghost" id="testApiBtn">Test connection</button>
+                </div>
+              </form>
+              <hr>
+              <h3>Demo data</h3>
+              <p class="hint">Demo rows are marked <span class="chip demo">DEMO</span> everywhere. Remove them before showing real field-visit data.</p>
+              <div class="actions">
+                <button class="btn ghost" id="loadSampleBtn">Load demo pharmacy</button>
+                <button class="btn danger" id="clearSampleBtn">Clear demo data</button>
+              </div>
+            </div>
+          </article>
+        </section>
+      </main>
 
-    <!-- ================= SETTINGS ================= -->
-    <section class="panel" id="tab-settings">
-      <article class="card narrow">
-        <h2>Settings</h2>
-        <p class="assumption" id="ownerOnlyNote" hidden>Only the owner can change settings.</p>
-        <form id="settingsForm">
-          <label class="full">Pharmacy name<input name="pharmacyName" placeholder="Shown in the header"></label>
-          <label>Critical window (days)<input name="criticalDays" type="number" min="1" step="1" required></label>
-          <label>Warning window (days)<input name="warningDays" type="number" min="1" step="1" required></label>
-          <p class="assumption full"><strong>ASSUMPTION:</strong> default windows are 30 / 90 days. Replace them with what the pharmacist tells you (e.g. how many days before expiry the supplier still accepts returns), and note the source in your slides.</p>
-          <label class="full">Google Sheet API URL (Apps Script Web App, ends with /exec)
-            <input name="apiUrl" placeholder="Leave empty for local mode">
-          </label>
-          <div class="full actions">
-            <button type="submit" class="btn primary">Save settings</button>
-            <button type="button" class="btn ghost" id="testApiBtn">Test connection</button>
-          </div>
-        </form>
-        <hr>
-        <h3>Sample data</h3>
-        <p class="hint">For testing only. Sample rows are marked <span class="chip sample">SAMPLE</span> everywhere. Remove them before the demo and show your field-visit data.</p>
-        <div class="actions">
-          <button class="btn ghost" id="loadSampleBtn">Load sample data</button>
-          <button class="btn danger" id="clearSampleBtn">Remove sample data</button>
-        </div>
-      </article>
-    </section>
-  </main>
-
-  <footer class="foot-note">
-    Every number on this screen comes from entered stock records. Open <em>“How is this calculated?”</em> for the formula. Units: Rs = Sri Lankan rupees, qty = units (tablets, capsules, sachets, items).
-  </footer>
+      <footer class="foot-note">
+        Every number comes from entered stock records or a named source. Open <em>“How is this calculated?”</em> for the formula. Rs = Sri Lankan rupees · units = tablets, capsules, vials, inhalers, items · times are Sri Lanka time.
+      </footer>
+    </div>
   </div>
 
-  <!-- Action dialog -->
-  <dialog id="actionDialog">
+  <!-- Batch action sheet -->
+  <dialog id="actionDialog" aria-labelledby="actionTitle">
     <form method="dialog" id="actionForm">
       <h2 id="actionTitle">Record action</h2>
       <p class="hint" id="actionInfo"></p>
-      <label>What happened?
-        <select name="type" required>
-          <option value="SOLD">Sold to customers</option>
-          <option value="RETURNED">Returned to supplier</option>
-          <option value="DISPOSED">Disposed (expired)</option>
-          <option value="ADJUST">Stock count correction</option>
-        </select>
+      <fieldset class="seg" id="actionType">
+        <legend class="sr-only">What happened?</legend>
+        <label><input type="radio" name="type" value="SOLD" checked><span>Sold</span></label>
+        <label><input type="radio" name="type" value="RETURNED"><span>Returned</span></label>
+        <label><input type="radio" name="type" value="DISPOSED"><span>Disposed</span></label>
+        <label><input type="radio" name="type" value="ADJUST"><span>Count fix</span></label>
+      </fieldset>
+      <label><span id="qtyLabel">Quantity (units)</span>
+        <span class="stepper">
+          <button type="button" class="btn ghost" data-step="-1" aria-label="One less">−</button>
+          <input name="qty" type="number" min="0" step="1" required inputmode="numeric">
+          <button type="button" class="btn ghost" data-step="1" aria-label="One more">+</button>
+        </span>
       </label>
-      <label><span id="qtyLabel">Quantity (units)</span><input name="qty" type="number" min="0" step="1" required></label>
       <label>Note<input name="note" placeholder="Optional"></label>
       <div class="actions">
-        <button type="submit" class="btn primary" value="ok">Save</button>
+        <button type="submit" class="btn primary grow" value="ok">Save</button>
         <button type="button" class="btn ghost" id="actionCancel">Cancel</button>
-        <button type="button" class="btn danger right" id="deleteBatchBtn" title="Delete this batch (typing mistake)">Delete batch</button>
       </div>
+      <button type="button" class="btn danger small" id="deleteBatchBtn" title="Delete this batch (typing mistake)">Delete batch</button>
     </form>
   </dialog>
 
+  <!-- Confirm dialog -->
+  <dialog id="askDialog" aria-labelledby="askText">
+    <p id="askText"></p>
+    <div class="actions">
+      <button type="button" class="btn primary" id="askOk">Continue</button>
+      <button type="button" class="btn ghost" id="askCancel">Cancel</button>
+    </div>
+  </dialog>
+
   <!-- Barcode scan dialog -->
-  <dialog id="scanDialog">
-    <h2>Scan barcode</h2>
+  <dialog id="scanDialog" aria-labelledby="scanTitle">
+    <h2 id="scanTitle">Scan barcode or label</h2>
     <video id="scanVideo" playsinline muted></video>
     <p class="hint">Hold the barcode inside the frame.</p>
     <div class="actions"><button class="btn ghost" id="scanClose">Close</button></div>
