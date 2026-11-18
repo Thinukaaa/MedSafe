@@ -504,15 +504,100 @@
     }
   }
 
-  /** Look up a scanned code: catalogue EAN first, then earlier batches with the same barcode. */
+  // ---------------- Scan router ----------------
+  function productByEan(ean) {
+    if (!ean) return null;
+    return products().filter(function (x) { return x.ean && String(x.ean) === String(ean); })[0] || null;
+  }
+  function findBatch(batchNo, ean) {
+    return state.batches.filter(function (b) {
+      return String(b.batchNo).toUpperCase() === String(batchNo).toUpperCase() && (!ean || !b.barcode || String(b.barcode) === String(ean));
+    })[0] || null;
+  }
+  function expiryParts(expiry) {
+    const m = /^(\d{4}-\d{2})(?:-(\d{2}))?$/.exec(expiry || '');
+    return m ? { expiry: m[1], expiryDay: m[2] ? String(Number(m[2])) : '' } : {};
+  }
+
+  /**
+   * Route any scanned text:
+   *  a) MedSafe label QR  MS1|batch|ean|YYYY-MM|qty|supplier|shelf → existing batch: quick actions; new: one-tap add
+   *  b) GS1 DataMatrix / GS1-128 (AI 01, 17, 10, 21) → pre-filled batch form (or the batch if it exists)
+   *  c) EAN-13 / other barcode → catalogue product → batch form
+   */
   function onCode(raw) {
     const code = String(raw || '').trim();
-    if (!code) return;
+    if (!code || !session) return;
+    if ($('#actionDialog').open) $('#actionDialog').close();
+    if ($('#labelDialog').open) $('#labelDialog').close();
+
+    const ms = Codes.parseMs1(code);
+    if (ms) { onMs1(ms); return; }
+
+    const g = Codes.parseGs1(code);
+    if (g) {
+      const ean = g.ean13 || g.gtin;
+      const existing = g.batch ? findBatch(g.batch, ean) : null;
+      if (existing) { openAction(existing.id); toast('GS1 code: batch ' + g.batch + ' is already in stock', 'ok'); return; }
+      const extra = Object.assign({ batchNo: g.batch, barcode: ean, source: 'Scanned barcode / label' }, expiryParts(g.expiry));
+      showTab('add');
+      pickProduct(productByEan(ean), extra);
+      toast('GS1 code read: ' + [g.gtin && 'GTIN ' + g.gtin, g.batch && 'batch ' + g.batch, g.expiry && 'exp ' + g.expiry, g.serial && 'serial ' + g.serial].filter(Boolean).join(' · '), 'ok');
+      return;
+    }
+
     showTab('add');
-    const p = products().filter(function (x) { return x.ean && String(x.ean) === code; })[0];
-    if (p) { pickProduct(p); toast('Found: ' + p.name + ' ' + p.strength, 'ok'); return; }
-    pickProduct(null, { barcode: code });
-    toast('New barcode — enter the product details once', '');
+    const p = productByEan(code);
+    if (p) { pickProduct(p, { source: 'Scanned barcode / label' }); toast('Found: ' + p.name + ' ' + p.strength, 'ok'); return; }
+    pickProduct(null, { barcode: code, source: 'Scanned barcode / label' });
+    toast('New barcode ' + code + ' — enter the product details once', '');
+  }
+
+  let pendingLabel = null;
+  function onMs1(ms) {
+    const existing = findBatch(ms.batchNo, ms.ean);
+    if (existing) { openAction(existing.id); toast('Label scanned: ' + existing.name + ' · ' + existing.batchNo, 'ok'); return; }
+    const p = productByEan(ms.ean);
+    const isDemo = /^DM[ON]-/.test(ms.batchNo);
+    const cost = p && p.mrp ? Calc.costFromMrp(p.mrp, settings.marginPct) : '';
+    const now = new Date().toISOString();
+    pendingLabel = {
+      id: newId('B'),
+      name: p ? p.name : 'Unknown product (' + ms.ean + ')', strength: p ? p.strength : '', form: p ? p.form : '',
+      barcode: ms.ean, batchNo: ms.batchNo, expiry: ms.expiry, qty: ms.qty,
+      costPrice: cost, costSource: p && p.mrp ? DemoData.costSourceText(settings.marginPct) : '',
+      sellPrice: p ? p.mrp : '', mrp: p ? p.mrp : '', mrpSource: p ? p.mrpSource : '',
+      supplier: ms.supplier, location: ms.shelf, source: 'Scanned MedSafe label', demo: isDemo, createdAt: now, updatedAt: now
+    };
+    const b = pendingLabel;
+    $('#labelBody').innerHTML =
+      '<h3>' + esc(b.name) + ' <span class="muted">' + esc(b.strength) + '</span>' + demoChip(b) + '</h3>' +
+      '<dl class="kv">' +
+      '<dt>Batch</dt><dd>' + esc(b.batchNo) + '</dd>' +
+      '<dt>Expiry</dt><dd>' + fmtDate(Calc.parseExpiry(b.expiry)) + ' (' + daysLabel(Calc.daysToExpiry(b.expiry)) + ')</dd>' +
+      '<dt>Quantity</dt><dd>' + plural(b.qty, 'unit', 'units') + '</dd>' +
+      '<dt>Supplier</dt><dd>' + esc(b.supplier || '—') + '</dd>' +
+      '<dt>Shelf</dt><dd>' + esc(b.location || '—') + '</dd>' +
+      (b.mrp ? '<dt>MRP</dt><dd>' + rs(b.mrp) + '/unit <span class="source-note">' + esc(b.mrpSource) + '</span></dd>' : '') +
+      (cost !== '' ? '<dt>Cost</dt><dd>' + rs(cost) + '/unit <span class="chip assumption">ASSUMPTION</span> <span class="source-note">MRP × (1 − ' + settings.marginPct + '%)</span></dd>' : '') +
+      '</dl>';
+    $('#labelAdd').disabled = !p;
+    $('#labelDialog').showModal();
+    $('#labelAdd').focus();
+  }
+
+  async function onLabelAdd() {
+    if (!pendingLabel) return;
+    const b = pendingLabel;
+    if (await saveNewBatch(b)) { $('#labelDialog').close(); pendingLabel = null; }
+  }
+
+  function onLabelEdit() {
+    const b = pendingLabel;
+    $('#labelDialog').close();
+    if (!b) return;
+    showTab('add');
+    pickProduct(productByEan(b.barcode), Object.assign({ batchNo: b.batchNo, qty: b.qty, supplier: b.supplier, location: b.location, barcode: b.barcode, source: 'Scanned barcode / label' }, expiryParts(b.expiry)));
   }
 
   // ---------------- Add stock: step 2 (save) ----------------
@@ -525,13 +610,14 @@
     const expiry = day ? month + '-' + day.padStart(2, '0') : month;
     if (!Calc.parseExpiry(expiry)) { toast('Please enter a valid expiry month (and day)', 'error'); return; }
     const now = new Date().toISOString();
+    const batchNo = String(fd.get('batchNo')).trim();
     const batch = {
       id: newId('B'),
       name: String(fd.get('name')).trim(),
       strength: String(fd.get('strength') || '').trim(),
       form: String(fd.get('form') || '').trim(),
       barcode: String(fd.get('barcode') || '').trim(),
-      batchNo: String(fd.get('batchNo')).trim(),
+      batchNo: batchNo,
       expiry: expiry,
       qty: Number(fd.get('qty')),
       costPrice: Number(fd.get('costPrice')),
@@ -542,59 +628,58 @@
       supplier: String(fd.get('supplier') || '').trim(),
       location: String(fd.get('location') || '').trim(),
       source: String(fd.get('source')),
-      demo: false,
+      demo: /^DM[ON]-/.test(batchNo),
       createdAt: now,
       updatedAt: now
     };
+    if (await saveNewBatch(batch)) {
+      f.reset();
+      goStep(1);
+      showTab('dashboard');
+    }
+  }
+
+  /** Save a new batch (form or one-tap label). Returns true when saved. */
+  async function saveNewBatch(batch) {
     setBusy(true);
     try {
       await store.upsertBatch(batch);
-      toast('Saved: ' + batch.name + ' (' + batch.batchNo + ')', 'ok');
-      f.reset();
-      goStep(1);
+      toast('Saved: ' + batch.name + ' (' + batch.batchNo + ') · ' + plural(batch.qty, 'unit', 'units'), 'ok');
       await refresh(true);
-      showTab('dashboard');
+      return true;
     } catch (e) {
-      if (e.unauthorized) { signOut('Session expired — please sign in again'); return; }
+      if (e.unauthorized) { signOut('Session expired — please sign in again'); return false; }
       toast('Save failed: ' + e.message, 'error');
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
-  // ---------------- Barcode camera (BarcodeDetector) ----------------
-  let scanStream = null, scanning = false;
+  // ---------------- Camera scanning (vendored html5-qrcode / ZXing) ----------------
   async function startScan() {
     const dlg = $('#scanDialog');
+    $('#torchBtn').hidden = true;
+    $('#scanError').textContent = '';
+    dlg.showModal();
     try {
-      if (!('BarcodeDetector' in window)) throw new Error('this browser has no barcode reader — type or search instead');
-      const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'qr_code', 'data_matrix'] });
-      scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      const video = $('#scanVideo');
-      video.srcObject = scanStream;
-      await video.play();
-      dlg.showModal();
-      scanning = true;
-      const loop = async function () {
-        if (!scanning) return;
-        try {
-          const codes = await detector.detect(video);
-          if (codes.length) { stopScan(); onCode(codes[0].rawValue); return; }
-        } catch (e) { /* keep trying */ }
-        requestAnimationFrame(loop);
-      };
-      loop();
+      await Scanner.open('scanRegion', function (text) {
+        if (dlg.open) dlg.close();
+        onCode(text);
+      }, function (torch) { $('#torchBtn').hidden = !torch; });
     } catch (e) {
-      stopScan();
-      toast('Camera scan not available: ' + e.message, 'error');
+      $('#scanError').textContent = 'Camera not available: ' + (e && e.message ? e.message : e) + '. You can still search, type, or use a USB scanner.';
     }
   }
   function stopScan() {
-    scanning = false;
-    if (scanStream) scanStream.getTracks().forEach(function (t) { t.stop(); });
-    scanStream = null;
+    Scanner.close();
     const dlg = $('#scanDialog');
     if (dlg.open) dlg.close();
+  }
+  async function onTorch() {
+    const on = await Scanner.toggleTorch();
+    $('#torchBtn').setAttribute('aria-pressed', String(on));
+    $('#torchBtn').textContent = on ? 'Torch off' : 'Torch on';
   }
 
   // ---------------- Actions (sold / returned / disposed) ----------------
@@ -821,6 +906,13 @@
     $('#scanBtn').addEventListener('click', startScan);
     $('#scanClose').addEventListener('click', stopScan);
     $('#scanDialog').addEventListener('cancel', stopScan);
+    $('#torchBtn').addEventListener('click', onTorch);
+    $('#labelAdd').addEventListener('click', onLabelAdd);
+    $('#labelEdit').addEventListener('click', onLabelEdit);
+    $('#labelCancel').addEventListener('click', function () { $('#labelDialog').close(); pendingLabel = null; });
+    // USB scanner: works on any screen once signed in (and inside the product search box)
+    Scanner.listenUsb(function (code) { if (session && !$('#appRoot').hidden) onCode(code); },
+      function (el) { return el.id === 'productSearch'; });
 
     $('#search').addEventListener('input', render);
     $('#statusFilter').addEventListener('change', render);

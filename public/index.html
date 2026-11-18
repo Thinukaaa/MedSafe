@@ -250,6 +250,7 @@
           <div class="more-grid">
             <button class="more-item" data-goto="log"><strong>Action log</strong><span>Every sale, return and disposal</span></button>
             <button class="more-item" data-goto="settings"><strong>Settings</strong><span>Alert windows, server, demo data</span></button>
+            <a class="more-item" href="labels.html" target="_blank" rel="noopener"><strong>Print DEMO labels</strong><span>A4 sheet of 24 box labels to scan live</span></a>
           </div>
         </section>
 
@@ -341,19 +342,36 @@
     </div>
   </dialog>
 
-  <!-- Barcode scan dialog -->
-  <dialog id="scanDialog" aria-labelledby="scanTitle">
+  <!-- Camera scan dialog -->
+  <dialog id="scanDialog" class="scan-dialog" aria-labelledby="scanTitle">
     <h2 id="scanTitle">Scan barcode or label</h2>
-    <video id="scanVideo" playsinline muted></video>
-    <p class="hint">Hold the barcode inside the frame.</p>
-    <div class="actions"><button class="btn ghost" id="scanClose">Close</button></div>
+    <div id="scanRegion" class="scan-region"></div>
+    <p class="form-error" id="scanError" role="alert"></p>
+    <p class="hint">Box barcode (EAN-13), MedSafe label QR or GS1 DataMatrix. Hold it inside the frame.</p>
+    <div class="actions">
+      <button class="btn ghost" id="torchBtn" aria-pressed="false" hidden>Torch on</button>
+      <button class="btn primary grow" id="scanClose">Close</button>
+    </div>
+  </dialog>
+
+  <!-- Scanned MedSafe label: one-tap add -->
+  <dialog id="labelDialog" aria-labelledby="labelTitle">
+    <h2 id="labelTitle">New delivery from label</h2>
+    <div id="labelBody" class="product-card"></div>
+    <div class="actions">
+      <button class="btn primary grow lg" id="labelAdd">Add to stock</button>
+      <button class="btn ghost" id="labelEdit">Edit details</button>
+      <button class="btn ghost" id="labelCancel">Cancel</button>
+    </div>
   </dialog>
 
   <div id="toast" role="status" aria-live="polite"></div>
 
   <script src="js/config.js"></script>
   <script src="js/calc.js"></script>
+  <script src="vendor/html5-qrcode-2.3.8.min.js"></script>
   <script src="js/codes.js"></script>
+  <script src="js/scanner.js"></script>
   <script src="js/demo-data.js"></script>
   <script src="js/store.js"></script>
   <script src="js/app.js"></script>
