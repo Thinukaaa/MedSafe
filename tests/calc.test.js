@@ -84,4 +84,22 @@ const bcEmpty = Calc.businessCase({ monthlyLoss: '', sharePct: 50, packagePrice:
 assert.strictEqual(bcEmpty.yearlyLoss, null);
 assert.strictEqual(bcEmpty.paybackMonths, null);
 
+// Cold chain: minutes out of range = Σ gaps after out-of-range readings (gaps > 10 min ignored)
+const t0 = Date.UTC(2026, 10, 19, 0, 0);
+const at = function (min, c) { return { ts: new Date(t0 + min * 60000).toISOString(), tempC: c }; };
+const fs1 = Calc.fridgeStats([at(0, 5), at(5, 9), at(10, 9.5), at(15, 6), at(20, 1.5), at(25, 4), at(30, 9), at(60, 5), at(61, 5.2)], new Date(t0 + 63 * 60000));
+assert.strictEqual(fs1.outOfRangeMin, 5 + 5 + 5);        // 5→10, 10→15, 20→25; the 30→60 gap (30 min) is offline
+assert.strictEqual(fs1.excursions, 3);
+assert.strictEqual(fs1.min, 1.5);
+assert.strictEqual(fs1.max, 9.5);
+assert.strictEqual(fs1.status, 'safe');
+assert.strictEqual(fs1.last.tempC, 5.2);
+assert.strictEqual(Calc.fridgeStats([at(0, 5)], new Date(t0 + 10 * 60000)).status, 'offline');
+assert.strictEqual(Calc.fridgeStats([at(0, 8.1)], new Date(t0 + 60000)).status, 'warm');
+assert.strictEqual(Calc.fridgeStats([at(0, 1.9)], new Date(t0 + 60000)).status, 'cold');
+assert.strictEqual(Calc.fridgeStats([at(0, 8)], new Date(t0 + 60000)).status, 'safe');   // 2–8 inclusive
+assert.strictEqual(Calc.fridgeStats([], new Date(t0)).status, 'none');
+// readings older than 24 h are ignored
+assert.strictEqual(Calc.fridgeStats([at(0, 12), at(5, 5)], new Date(t0 + 25 * 3600000)).status, 'none');
+
 console.log('All calc tests passed ✔');

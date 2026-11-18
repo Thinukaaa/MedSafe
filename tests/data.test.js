@@ -49,4 +49,16 @@ const nd = Demo.newDeliveries(cat, { today: today });
 assert.strictEqual(nd.length, 8);
 assert.ok(nd.every(function (x) { return !a.batches.some(function (y) { return y.batchNo === x.batchNo; }); }));
 
+// DEMO fridge: deterministic, 24 h of 5-min readings, exactly one labelled 20-minute excursion
+const now = new Date(Date.UTC(2026, 10, 19, 3, 0));   // 08:30 Sri Lanka time
+const fr = Demo.fridgeReadings(now);
+assert.deepStrictEqual(fr, Demo.fridgeReadings(now));
+assert.strictEqual(fr.length, 288);
+assert.ok(fr.every(function (r) { return r.demo === true; }));
+const fst = Calc.fridgeStats(fr, now);
+assert.strictEqual(fst.outOfRangeMin, 20);
+assert.strictEqual(fst.excursions, 1);
+assert.strictEqual(fst.status, 'safe');
+assert.ok(fr.some(function (r) { return /DEMO excursion/.test(r.note); }));
+
 console.log('All data tests passed ✔');

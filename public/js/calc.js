@@ -22,6 +22,8 @@
     yearlySaving: 'Yearly saving (Rs) = yearly expired loss (Rs) × share prevented (%) ÷ 100.',
     payback: 'Payback (months) = one-time package price (Rs) ÷ monthly saving (Rs), where monthly saving = monthly expired loss × share prevented.',
     net3y: '3-year net benefit (Rs) = 3 × yearly saving − one-time package price − 3 × yearly support.',
+    fridgeStatus: 'Safe = latest reading 2–8 °C · Too warm = above 8 °C · Too cold = below 2 °C · Device offline = no reading for 10 minutes. 2–8 °C: WHO vaccine/insulin storage range.',
+    outOfRange: 'Minutes out of range (last 24 h) = sum of the time between each reading and the next one, when that reading was outside 2–8 °C. Gaps longer than 10 minutes are not counted (device offline).',
     costFromMrp: 'Cost price per unit (Rs) = MRP per unit (Rs) × (1 − pharmacy margin %), rounded to 2 decimals. MRP source: NMRA MRP Gazette Extraordinary No. 2336/53 (15 Jun 2023). ASSUMPTION: margin = {margin}% — replace with the figure from the field visit.'
   };
 
@@ -171,6 +173,50 @@
     };
   }
 
+  // ---------------- Cold chain ----------------
+  const FRIDGE = { min: 2, max: 8, offlineMin: 10, windowH: 24 };
+
+  function fridgeState(t) {
+    if (t === null || t === undefined || !isFinite(t)) return 'none';
+    return t > FRIDGE.max ? 'warm' : t < FRIDGE.min ? 'cold' : 'safe';
+  }
+
+  /**
+   * readings: [{ ts (ISO or ms), tempC }] in any order. now: Date.
+   * → { last, min, max, outOfRangeMin, excursions, status: safe|warm|cold|offline|none, minutesSinceLast, points }
+   */
+  function fridgeStats(readings, now, windowH) {
+    const end = (now || new Date()).getTime();
+    const start = end - (windowH || FRIDGE.windowH) * 3600000;
+    const pts = (readings || []).map(function (r) { return { t: new Date(r.ts).getTime(), c: Number(r.tempC), note: r.note || '' }; })
+      .filter(function (p) { return isFinite(p.t) && isFinite(p.c) && p.t >= start && p.t <= end + 60000; })
+      .sort(function (a, b) { return a.t - b.t; });
+    if (!pts.length) return { last: null, min: null, max: null, outOfRangeMin: 0, excursions: 0, status: 'none', minutesSinceLast: null, points: [] };
+    let out = 0, excursions = 0, prevOut = false, min = Infinity, max = -Infinity;
+    pts.forEach(function (p, i) {
+      min = Math.min(min, p.c); max = Math.max(max, p.c);
+      const isOut = fridgeState(p.c) !== 'safe';
+      if (isOut && !prevOut) excursions++;
+      prevOut = isOut;
+      const next = pts[i + 1];
+      if (isOut && next) {
+        const gapMin = (next.t - p.t) / 60000;
+        if (gapMin <= FRIDGE.offlineMin) out += gapMin;
+      }
+    });
+    const last = pts[pts.length - 1];
+    const since = Math.floor((end - last.t) / 60000);
+    return {
+      last: { tempC: last.c, ts: new Date(last.t) },
+      min: min, max: max,
+      outOfRangeMin: Math.round(out),
+      excursions: excursions,
+      status: since >= FRIDGE.offlineMin ? 'offline' : fridgeState(last.c),
+      minutesSinceLast: since,
+      points: pts
+    };
+  }
+
   /** Cost from MRP and an assumed margin (%). */
   function costFromMrp(mrp, marginPct) {
     return Math.round(num(mrp) * (1 - num(marginPct) / 100) * 100) / 100;
@@ -190,7 +236,8 @@
 
   const api = {
     FORMULAS, DEFAULT_SETTINGS, today, toISODate, parseExpiry, daysToExpiry, status,
-    valueAtCost, enrich, summary, fefo, impact, costFromMrp, returnPlan, businessCase, formula
+    valueAtCost, enrich, summary, fefo, impact, costFromMrp, returnPlan, businessCase, formula,
+    FRIDGE, fridgeState, fridgeStats
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

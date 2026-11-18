@@ -32,7 +32,7 @@
   let settings = loadSettings();
   let session = loadSession();
   let store = null;
-  const state = { batches: [], events: [], catalogue: [], lastSync: null, loaded: false, actionBatch: null, tab: 'dashboard' };
+  const state = { batches: [], events: [], catalogue: [], fridge: null, lastSync: null, loaded: false, actionBatch: null, tab: 'dashboard' };
 
   // ---------------- Settings ----------------
   function loadSettings() {
@@ -217,6 +217,7 @@
         settings = normaliseSettings(Object.assign({}, settings, d.settings, { apiUrl: settings.apiUrl }));
         saveSettings(settings);
       }
+      try { state.fridge = await store.fridge(); } catch (e) { state.fridge = { readings: [], demo: false, error: e.message }; }
       state.batches = d.batches.map(normaliseBatch);
       state.events = d.events;
       state.lastSync = new Date();
@@ -255,6 +256,15 @@
     renderReturns(enriched);
     renderBusiness();
     renderSources();
+    renderCold();
+  }
+
+  // ---------------- Cold chain ----------------
+  function renderCold() {
+    const f = state.fridge || { readings: [], demo: false };
+    const now = new Date();
+    Cold.render($('#coldBody'), f.readings, now, { demo: f.demo });
+    Cold.mini($('#coldMiniBody'), f.readings, now, { demo: f.demo });
   }
 
   // ---------------- Supplier returns ----------------
@@ -363,6 +373,7 @@
       ['Pharmacy margin (cost = MRP × (1 − margin))', settings.marginPct + ' %', 'Settings — replace with the figure from the field visit'],
       ['Supplier return window', settings.returnWindowDays + ' days', 'Settings — ask each supplier'],
       ['Share of expired loss prevented', (b.sharePct === '' ? '—' : b.sharePct + ' %'), 'Business case — or press “use measured recovery rate”'],
+      ['Fridge gaps longer than 10 min', 'Not counted as out of range', 'Fixed rule — device treated as offline (stated in the cold-chain formula)'],
       ['Box shows month/year only', 'Last day of that month', 'Fixed rule — stated in the “days left” formula'],
       ['DEMO pharmacy', '35 batches · 10 actions · 4 suppliers', 'Generated deterministically from the catalogue; clear before real data']
     ];

@@ -105,7 +105,29 @@
     });
   }
 
-  const api = { build: build, newDeliveries: newDeliveries, costSourceText: costSourceText, SUPPLIERS: SUPPLIERS };
+  /**
+   * DEMO fridge readings: one every 5 min for the last 24 h, from a fixed sine-like pattern of the
+   * time of day (same clock time → same reading). One labelled excursion: 14:00–14:20 Sri Lanka time
+   * ("door left open"), 4 readings above 8 °C = 20 minutes out of range.
+   */
+  const STEP_MS = 5 * 60000;
+  const SL_OFFSET_MIN = 330;   // Sri Lanka = UTC+5:30
+  const EXCURSION = { 840: 8.9, 845: 9.6, 850: 9.4, 855: 8.7, 860: 7.4 };   // minute of day (SL) → °C
+  function fridgeReadings(now) {
+    const end = Math.floor((now || new Date()).getTime() / STEP_MS) * STEP_MS;
+    const out = [];
+    for (let t = end - 24 * 3600000 + STEP_MS; t <= end; t += STEP_MS) {
+      const mod = ((Math.floor(t / 60000) + SL_OFFSET_MIN) % 1440 + 1440) % 1440;
+      const phase = mod / 1440;
+      let c = 5.0 + 1.3 * Math.sin(2 * Math.PI * phase) + 0.4 * Math.sin(2 * Math.PI * phase * 8);
+      let note = '';
+      if (EXCURSION[mod] !== undefined) { c = EXCURSION[mod]; note = mod < 860 ? 'DEMO excursion: door left open (20 min)' : ''; }
+      out.push({ ts: new Date(t).toISOString(), deviceId: 'DEMO-FRIDGE-1', tempC: Math.round(c * 10) / 10, note: note, demo: true });
+    }
+    return out;
+  }
+
+  const api = { build: build, newDeliveries: newDeliveries, costSourceText: costSourceText, fridgeReadings: fridgeReadings, SUPPLIERS: SUPPLIERS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DemoData = api;
 })(this);

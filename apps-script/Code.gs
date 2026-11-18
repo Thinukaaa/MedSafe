@@ -28,6 +28,8 @@ const BATCH_COLS = ['id', 'name', 'strength', 'form', 'barcode', 'batchNo', 'exp
 const EVENT_COLS = ['id', 'ts', 'batchId', 'name', 'batchNo', 'type', 'qty', 'unitCost', 'value',
   'daysToExpiry', 'note', 'demo', 'by'];
 const USER_COLS = ['shopId', 'name', 'role', 'pinHash', 'salt'];
+const SH_FRIDGE = 'Fridge';
+const FRIDGE_COLS = ['ts', 'deviceId', 'tempC'];
 const SH_SETTINGS = 'Settings';
 const SETTINGS_COLS = ['key', 'value'];
 const SETTING_KEYS = ['pharmacyName', 'criticalDays', 'warningDays', 'marginPct', 'returnWindowDays', 'business'];
@@ -51,6 +53,7 @@ function setup() {
   ensureSheet_(SH_EVENTS, EVENT_COLS);
   ensureSheet_(SH_USERS, USER_COLS);
   ensureSheet_(SH_SETTINGS, SETTINGS_COLS);
+  ensureSheet_(SH_FRIDGE, FRIDGE_COLS);
 }
 
 // ---------------- Settings (shared, owner edits) ----------------
@@ -174,8 +177,88 @@ function sendDailyDigest() {
   MailApp.sendEmail({ to: to, subject: subject, htmlBody: html });
 }
 
-/** Cold-chain section of the digest (filled in by the fridge module). */
-function fridgeDigestHtml_(today) { return ''; }
+// ---------------- Cold chain (fridge) ----------------
+// 2–8 °C: WHO vaccine/insulin storage range. Same rules as Calc.fridgeStats in public/js/calc.js.
+const FRIDGE_MIN = 2, FRIDGE_MAX = 8, OFFLINE_MIN = 10;
+
+function deviceOk_(key) {
+  const k = PropertiesService.getScriptProperties().getProperty('DEVICE_KEY');
+  return !!k && String(key || '') === k;
+}
+
+/** POST {action:'temp', deviceKey, deviceId, tempC, ts?}  ts = epoch seconds for readings buffered offline. */
+function addReading_(b) {
+  if (!deviceOk_(b.deviceKey)) return UNAUTHORIZED;
+  const c = Number(b.tempC);
+  if (!isFinite(c) || c < -40 || c > 85) return { error: 'tempC out of sensor range' };
+  let ts = new Date();
+  const sent = Number(b.ts) * 1000;
+  if (isFinite(sent) && sent > Date.now() - 48 * 3600000 && sent < Date.now() + 5 * 60000) ts = new Date(sent);
+  const sh = sheet_(SH_FRIDGE, FRIDGE_COLS);
+  const r = sh.getLastRow() + 1;
+  sh.getRange(r, 1).setNumberFormat('@');
+  sh.getRange(r, 1, 1, 3).setValues([[ts.toISOString(), String(b.deviceId || 'fridge-1').slice(0, 40), Math.round(c * 100) / 100]]);
+  return { ok: true, ts: ts.toISOString() };
+}
+
+/** Readings from the last `ms` (reads only the newest rows: 1/min → ~1440 per day). */
+function fridgeReadings_(ms, endMs) {
+  const sh = sheet_(SH_FRIDGE, FRIDGE_COLS);
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const n = Math.min(last - 1, Math.ceil(ms / 60000) * 2 + 50);
+  const end = endMs || Date.now();
+  const start = end - ms;
+  return sh.getRange(last - n + 1, 1, n, 3).getValues().map(function (r) {
+    const t = r[0] instanceof Date ? r[0] : new Date(r[0]);
+    return { ts: t.toISOString(), t: t.getTime(), deviceId: String(r[1]), tempC: Number(r[2]) };
+  }).filter(function (r) { return isFinite(r.t) && r.t >= start && r.t <= end; })
+    .sort(function (a, b) { return a.t - b.t; });
+}
+
+function fridgeStats_(rs) {
+  let out = 0, exc = 0, prevOut = false, min = null, max = null;
+  rs.forEach(function (r, i) {
+    min = min === null ? r.tempC : Math.min(min, r.tempC);
+    max = max === null ? r.tempC : Math.max(max, r.tempC);
+    const isOut = r.tempC < FRIDGE_MIN || r.tempC > FRIDGE_MAX;
+    if (isOut && !prevOut) exc++;
+    prevOut = isOut;
+    const next = rs[i + 1];
+    if (isOut && next) { const gap = (next.t - r.t) / 60000; if (gap <= OFFLINE_MIN) out += gap; }
+  });
+  return { outOfRangeMin: Math.round(out), excursions: exc, min: min, max: max, last: rs.length ? rs[rs.length - 1] : null };
+}
+
+/** GET ?action=summary&deviceKey=  → small JSON for the ESP32 LED + OLED. */
+function deviceSummary_() {
+  const s = settings_();
+  const g = stockSummary_(s, todayLocal_()).groups;
+  const f = fridgeStats_(fridgeReadings_(24 * 3600000));
+  const pick = function (k) { return { n: g[k].n, rs: g[k].rs }; };
+  return {
+    expired: pick('expired'), critical: pick('critical'), warning: pick('warning'),
+    fridge: {
+      lastTempC: f.last ? f.last.tempC : null,
+      lastTs: f.last ? f.last.ts : null,
+      outOfRangeMin24h: f.outOfRangeMin,
+      inRange: f.last ? f.last.tempC >= FRIDGE_MIN && f.last.tempC <= FRIDGE_MAX : null
+    },
+    generatedAt: new Date().toISOString(),
+    generatedAtLocal: Utilities.formatDate(new Date(), TZ, 'HH:mm')
+  };
+}
+
+/** Digest section: yesterday's fridge (Sri Lanka calendar day). */
+function fridgeDigestHtml_(today) {
+  const yStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1).getTime();
+  const rs = fridgeReadings_(today.getTime() - yStart, today.getTime());
+  if (!rs.length) return '<h3 style="margin:20px 0 6px">Cold chain yesterday</h3><p>No fridge readings yesterday — check the sensor.</p>';
+  const f = fridgeStats_(rs);
+  return '<h3 style="margin:20px 0 6px">Cold chain yesterday</h3><p>' +
+    (f.excursions ? '<b style="color:#B42318">' + f.excursions + ' excursion(s), ' + f.outOfRangeMin + ' min outside 2–8 °C.</b>' : '<b style="color:#15803D">No excursions — stayed 2–8 °C.</b>') +
+    ' Min ' + f.min.toFixed(1) + ' °C · max ' + f.max.toFixed(1) + ' °C · ' + rs.length + ' readings. (2–8 °C: WHO vaccine/insulin storage range.)</p>';
+}
 
 /** Run from the editor: setupOwner('SHOP1', 'Nimal Perera', '482913') */
 function setupOwner(shopId, name, pin) { return addUser_(shopId, name, pin, 'owner'); }
@@ -265,7 +348,14 @@ function doGet(e) {
   const p = (e && e.parameter) || {};
   const action = p.action || 'list';
   try {
+    if (action === 'summary') {                     // ESP32 device (DEVICE_KEY, not a user token)
+      if (!deviceOk_(p.deviceKey)) return json_(UNAUTHORIZED);
+      return json_(deviceSummary_());
+    }
     if (!session_(p.token)) return json_(UNAUTHORIZED);
+    if (action === 'fridge') {
+      return json_({ readings: fridgeReadings_(24 * 3600000), serverTime: new Date().toISOString() });
+    }
     if (action === 'ping') {
       return json_({ ok: true, sheet: SpreadsheetApp.getActiveSpreadsheet().getName(), batches: readAll_(SH_BATCHES, BATCH_COLS).length });
     }
@@ -284,6 +374,7 @@ function doPost(e) {
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     if (body.action === 'login') return json_(login_(body.shopId, body.pin));
+    if (body.action === 'temp') return json_(addReading_(body));    // ESP32 device
     const s = session_(body.token);
     if (!s) return json_(UNAUTHORIZED);
     const owner = s.role === 'owner';
