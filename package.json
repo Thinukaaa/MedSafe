@@ -1,0 +1,13 @@
+{
+  "name": "medsafe",
+  "version": "1.0.0",
+  "description": "MedSafe — expiry + cold-chain tracker for small Sri Lankan pharmacies (SLIIT hackathon)",
+  "private": true,
+  "scripts": {
+    "start": "serve public -l 5500",
+    "test": "node tests/calc.test.js"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
+  }
+}
