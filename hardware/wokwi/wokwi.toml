@@ -1,0 +1,7 @@
+# Wokwi for VS Code. Build first (from the repo root):
+#   arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir hardware/wokwi/build hardware/medsafe_device
+# Then: F1 → "Wokwi: Start Simulator" with this folder open.
+[wokwi]
+version = 1
+firmware = 'build/medsafe_device.ino.bin'
+elf = 'build/medsafe_device.ino.elf'
