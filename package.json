@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "start": "serve public -l 5500",
-    "test": "node tests/calc.test.js"
+    "test": "node tests/calc.test.js && node tests/codes.test.js && node tests/data.test.js",
+    "build:data": "node scripts/build-catalogue.js"
   },
   "devDependencies": {
     "serve": "^14.2.4"

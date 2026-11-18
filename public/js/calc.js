@@ -16,7 +16,8 @@
     fefo: 'Sell-first order = FEFO (First-Expiry-First-Out): batches sorted by expiry date, earliest first.',
     recovered: 'Recovered (Rs) = Σ value of stock SOLD or RETURNED to supplier while it was within the warning window (0 to {warning} days left). This is stock that would likely have expired without the alert.',
     lost: 'Lost (Rs) = Σ value of stock DISPOSED as expired.',
-    recoveryRate: 'Recovery rate = Recovered ÷ (Recovered + Lost) × 100.'
+    recoveryRate: 'Recovery rate = Recovered ÷ (Recovered + Lost) × 100.',
+    costFromMrp: 'Cost price per unit (Rs) = MRP per unit (Rs) × (1 − pharmacy margin %), rounded to 2 decimals. MRP source: NMRA MRP Gazette Extraordinary No. 2336/53 (15 Jun 2023). ASSUMPTION: margin = {margin}% — replace with the figure from the field visit.'
   };
 
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -125,17 +126,26 @@
     };
   }
 
+  /** Cost from MRP and an assumed margin (%). */
+  function costFromMrp(mrp, marginPct) {
+    return Math.round(num(mrp) * (1 - num(marginPct) / 100) * 100) / 100;
+  }
+
+  const DEFAULT_SETTINGS = { criticalDays: 30, warningDays: 90, marginPct: 16, returnWindowDays: 60 };
+
   function formula(key, settings) {
-    const s = settings || { criticalDays: 30, warningDays: 90 };
+    const s = Object.assign({}, DEFAULT_SETTINGS, settings || {});
     return FORMULAS[key]
       .split('{critical}').join(s.criticalDays)
       .split('{critical1}').join(s.criticalDays + 1)
-      .split('{warning}').join(s.warningDays);
+      .split('{warning}').join(s.warningDays)
+      .split('{margin}').join(s.marginPct)
+      .split('{window}').join(s.returnWindowDays);
   }
 
   const api = {
-    FORMULAS, today, toISODate, parseExpiry, daysToExpiry, status,
-    valueAtCost, enrich, summary, fefo, impact, formula
+    FORMULAS, DEFAULT_SETTINGS, today, toISODate, parseExpiry, daysToExpiry, status,
+    valueAtCost, enrich, summary, fefo, impact, costFromMrp, formula
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

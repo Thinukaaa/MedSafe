@@ -14,6 +14,7 @@
     pharmacyName: '',
     criticalDays: 30,
     warningDays: 90,
+    marginPct: 16,          // ASSUMPTION — replace with the figure from the field visit
     apiUrl: (window.MS_CONFIG && window.MS_CONFIG.API_URL) || ''
   };
   const TITLES = {
@@ -34,6 +35,7 @@
       const s = Object.assign({}, DEFAULTS, saved);
       s.criticalDays = Number(s.criticalDays) || DEFAULTS.criticalDays;
       s.warningDays = Number(s.warningDays) || DEFAULTS.warningDays;
+      s.marginPct = isFinite(Number(s.marginPct)) && s.marginPct !== '' ? Number(s.marginPct) : DEFAULTS.marginPct;
       return s;
     } catch (e) { return Object.assign({}, DEFAULTS); }
   }
@@ -104,6 +106,7 @@
     showScreen('app');
     applyRole();
     showTab('dashboard');
+    if (!state.catalogue.length) loadCatalogue();
     refresh(true);
   }
 
@@ -441,10 +444,14 @@
       f.elements.barcode.value = p.ean || '';
       f.elements.mrp.value = p.mrp || '';
       f.elements.mrpSource.value = p.mrpSource || '';
-      if (p.mrp) f.elements.sellPrice.value = p.mrp;
+      if (p.mrp) {
+        f.elements.sellPrice.value = p.mrp;
+        f.elements.costPrice.value = Calc.costFromMrp(p.mrp, settings.marginPct);
+        setCostSource(DemoData.costSourceText(settings.marginPct));
+      }
       if (prev) {
         ['costPrice', 'sellPrice', 'supplier', 'location'].forEach(function (k) { if (prev[k] !== '' && prev[k] !== undefined) f.elements[k].value = prev[k]; });
-        if (prev.costSource) f.elements.costSource.value = prev.costSource;
+        if (prev.costSource) setCostSource(prev.costSource);
       }
     }
     Object.keys(extra || {}).forEach(function (k) { if (f.elements[k] && extra[k] !== undefined && extra[k] !== '') f.elements[k].value = extra[k]; });
@@ -452,12 +459,36 @@
     goStep(2);
   }
 
+  /** Select a cost source, adding it as an option if it is not one of the fixed choices (e.g. the ASSUMPTION text). */
+  function setCostSource(text) {
+    const sel = $('#addForm').elements.costSource;
+    if (!Array.from(sel.options).some(function (o) { return o.value === text; })) {
+      const o = document.createElement('option');
+      o.textContent = text;
+      sel.appendChild(o);
+    }
+    sel.value = text;
+  }
+
+  async function loadCatalogue() {
+    try {
+      const res = await fetch('data/catalogue.json', { cache: 'no-cache' });
+      const c = await res.json();
+      state.catalogue = c.products || [];
+    } catch (e) {
+      console.error(e);
+      toast('Medicine catalogue could not be loaded — search will only show your own stock', 'error');
+    }
+  }
+
   function renderProductCard(p) {
     const card = $('#productCard');
     if (!p) { card.innerHTML = '<h3>New product</h3><p>Type the details from the box label.</p>'; return; }
     card.innerHTML = '<h3>' + esc(p.name) + ' <span class="muted">' + esc(p.strength) + '</span></h3>' +
       '<p>' + esc(p.form || '') + (p.ean ? ' · Barcode ' + esc(p.ean) : '') + '</p>' +
-      (p.mrp ? '<p><strong>MRP ' + rs(p.mrp) + ' per unit</strong> — source: ' + esc(p.mrpSource) + '</p>' : '') +
+      (p.mrp ? '<p><strong>MRP ' + rs(p.mrp) + ' per unit</strong> — source: ' + esc(p.mrpSource) + '</p>' +
+        '<p>Cost pre-filled as ' + rs(Calc.costFromMrp(p.mrp, settings.marginPct)) + ' = MRP × (1 − ' + settings.marginPct + '%) <span class="chip assumption">ASSUMPTION</span> — replace with the invoice price if you have it.</p>' : '') +
+      (p.ean && /^2/.test(p.ean) ? '<p>Barcode is a DEMO in-store code (GS1 range 200–299).</p>' : '') +
       (p.fromStock ? '<p>Prices copied from your last batch — check they are still correct.</p>' : '');
   }
 
@@ -689,6 +720,7 @@
     f.elements.pharmacyName.value = settings.pharmacyName;
     f.elements.criticalDays.value = settings.criticalDays;
     f.elements.warningDays.value = settings.warningDays;
+    f.elements.marginPct.value = settings.marginPct;
     f.elements.apiUrl.value = settings.apiUrl;
   }
 
@@ -699,13 +731,15 @@
     const c = Number(f.elements.criticalDays.value);
     const w = Number(f.elements.warningDays.value);
     if (!(c > 0 && w > c)) { toast('Warning window must be longer than the critical window', 'error'); return; }
+    const margin = Number(f.elements.marginPct.value);
+    if (!(margin >= 0 && margin < 100)) { toast('Margin must be between 0 and 99 %', 'error'); return; }
     const apiUrl = f.elements.apiUrl.value.trim();
     if (apiUrl && !/^https:\/\/script\.google\.com\/.+\/exec$/.test(apiUrl)) {
       toast('API URL should look like https://script.google.com/macros/s/…/exec', 'error');
       return;
     }
     const modeChanged = apiUrl !== settings.apiUrl;
-    settings = Object.assign({}, settings, { pharmacyName: f.elements.pharmacyName.value.trim(), criticalDays: c, warningDays: w, apiUrl: apiUrl });
+    settings = Object.assign({}, settings, { pharmacyName: f.elements.pharmacyName.value.trim(), criticalDays: c, warningDays: w, marginPct: margin, apiUrl: apiUrl });
     saveSettings(settings);
     toast(modeChanged ? 'Saved — sign out and in again to use the new server' : 'Settings saved', 'ok');
     render();
@@ -727,8 +761,9 @@
 
   async function onLoadDemo() {
     if (!isOwner()) return;
-    if (!await ask('Load the DEMO pharmacy? Every demo row is marked DEMO and can be cleared later.', 'Load demo')) return;
-    const d = window.SampleData.build();
+    if (!state.catalogue.length) await loadCatalogue();
+    if (!await ask('Load the DEMO pharmacy? 35 DEMO batches + 10 DEMO actions, built from real NMRA prices. Every demo row is marked DEMO and can be cleared later.', 'Load demo')) return;
+    const d = DemoData.build(state.catalogue, { marginPct: settings.marginPct });
     setBusy(true);
     try {
       await store.upsertBatches(d.batches);

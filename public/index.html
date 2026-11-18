@@ -77,7 +77,7 @@
         <div class="sync">
           <span class="mode-badge" id="modeBadge">—</span>
           <span class="asof" id="asOf">—</span>
-          <button class="btn ghost small" id="refreshBtn" title="Reload data from the server">↻ Update now</button>
+          <button class="btn ghost small" id="refreshBtn" title="Reload data from the server" aria-label="Update now">↻ <span class="btn-text">Update now</span></button>
         </div>
       </header>
 
@@ -276,6 +276,8 @@
                 <label>Critical window (days)<input name="criticalDays" type="number" min="1" step="1" required></label>
                 <label>Warning window (days)<input name="warningDays" type="number" min="1" step="1" required></label>
                 <p class="assumption full"><strong>ASSUMPTION:</strong> default windows are 30 / 90 days. Replace them with what the pharmacist tells you, and note the source in your slides.</p>
+                <label>Pharmacy margin (%) <span class="chip assumption">ASSUMPTION</span><input name="marginPct" type="number" min="0" max="99" step="0.1" required></label>
+                <p class="assumption">Used only when the real cost is unknown: cost = MRP × (1 − margin). Default 16 % — replace with the figure from the field visit.</p>
                 <label class="full">Google Sheet API URL (Apps Script Web App, ends with /exec)
                   <input name="apiUrl" placeholder="Leave empty for the DEMO pharmacy">
                 </label>
@@ -351,7 +353,8 @@
 
   <script src="js/config.js"></script>
   <script src="js/calc.js"></script>
-  <script src="js/sample-data.js"></script>
+  <script src="js/codes.js"></script>
+  <script src="js/demo-data.js"></script>
   <script src="js/store.js"></script>
   <script src="js/app.js"></script>
 </body>
