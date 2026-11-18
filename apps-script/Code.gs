@@ -494,7 +494,7 @@ function upsert_(name, cols, obj) {
 }
 
 function append_(name, cols, obj) {
-  if (!obj || !obj.id) throw new Error('Missing id');
+  if (!obj || (cols.indexOf('id') !== -1 && !obj.id)) throw new Error('Missing id');
   const sh = sheet_(name, cols);
   const r = sh.getLastRow() + 1;
   cols.forEach(function (c, i) { if (TEXT_COLS[c]) sh.getRange(r, i + 1).setNumberFormat('@'); });
