@@ -260,6 +260,30 @@ function fridgeDigestHtml_(today) {
     ' Min ' + f.min.toFixed(1) + ' °C · max ' + f.max.toFixed(1) + ' °C · ' + rs.length + ' readings. (2–8 °C: WHO vaccine/insulin storage range.)</p>';
 }
 
+/**
+ * ONE-CLICK SETUP — edit the 5 values, select quickSetup, press Run once, then delete your PINs from this code.
+ * Creates all tabs, the owner + one staff user, Script Properties DEVICE_KEY + DIGEST_EMAIL, and the 08:00 digest trigger.
+ * The DEVICE_KEY it makes is printed in the log (View → Logs) — copy it into the ESP32 sketch.
+ */
+function quickSetup() {
+  const SHOP_ID = 'SHOP1';
+  const OWNER_NAME = 'Your Name';
+  const OWNER_PIN = '482913';       // 4–6 digits
+  const STAFF_PIN = '7351';         // 4–6 digits, different from the owner PIN
+  const DIGEST_EMAIL = 'you@example.com';
+
+  setup();
+  const users = readAll_(SH_USERS, USER_COLS);
+  if (!users.some(function (u) { return String(u.shopId).toUpperCase() === SHOP_ID && u.role === 'owner'; })) setupOwner(SHOP_ID, OWNER_NAME, OWNER_PIN);
+  if (!users.some(function (u) { return String(u.shopId).toUpperCase() === SHOP_ID && u.role === 'staff'; })) addStaff(SHOP_ID, 'Staff', STAFF_PIN);
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('DEVICE_KEY')) props.setProperty('DEVICE_KEY', 'ms-' + Utilities.getUuid());
+  props.setProperty('DIGEST_EMAIL', DIGEST_EMAIL);
+  installDigestTrigger();
+  Logger.log('Done. DEVICE_KEY = ' + props.getProperty('DEVICE_KEY') + '  → paste into the ESP32 sketch.');
+  Logger.log('Next: Deploy → New deployment → Web app · Execute as Me · Anyone → copy the /exec URL.');
+}
+
 /** Run from the editor: setupOwner('SHOP1', 'Nimal Perera', '482913') */
 function setupOwner(shopId, name, pin) { return addUser_(shopId, name, pin, 'owner'); }
 
