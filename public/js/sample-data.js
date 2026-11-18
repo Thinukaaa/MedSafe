@@ -31,17 +31,17 @@
         name: r[0], strength: r[1], barcode: '', batchNo: r[2],
         expiry: isoFromToday(r[3]), qty: r[4], costPrice: r[5], sellPrice: r[6],
         supplier: 'Sample supplier', location: r[7],
-        source: 'SAMPLE (not real data)', sample: true,
+        source: 'DEMO (not real data)', demo: true,
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
       };
     });
     const events = [
       { id: 'SAMPLE-E1', ts: new Date().toISOString(), batchId: 'SAMPLE-2', name: 'Amoxicillin', batchNo: 'AMX-0925',
-        type: 'RETURNED', qty: 40, unitCost: 9, value: 360, daysToExpiry: 20, note: 'Sample event', sample: true },
+        type: 'RETURNED', qty: 40, unitCost: 9, value: 360, daysToExpiry: 20, note: 'Sample event', demo: true },
       { id: 'SAMPLE-E2', ts: new Date().toISOString(), batchId: 'SAMPLE-3', name: 'Cetirizine', batchNo: 'CTZ-1102',
-        type: 'SOLD', qty: 50, unitCost: 3, value: 150, daysToExpiry: 30, note: 'Sample event', sample: true },
+        type: 'SOLD', qty: 50, unitCost: 3, value: 150, daysToExpiry: 30, note: 'Sample event', demo: true },
       { id: 'SAMPLE-E3', ts: new Date().toISOString(), batchId: 'SAMPLE-1', name: 'Paracetamol', batchNo: 'PCM-2411',
-        type: 'DISPOSED', qty: 100, unitCost: 2.5, value: 250, daysToExpiry: -5, note: 'Sample event', sample: true }
+        type: 'DISPOSED', qty: 100, unitCost: 2.5, value: 250, daysToExpiry: -5, note: 'Sample event', demo: true }
     ];
     return { batches: batches, events: events };
   }

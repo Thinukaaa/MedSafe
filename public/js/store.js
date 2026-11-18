@@ -1,7 +1,7 @@
 /**
  * MedSafe — data store
  * Two interchangeable stores with the same methods:
- *   LocalStore → saves in this browser (localStorage). Works offline.
+ *   LocalStore → DEMO pharmacy, saved in this browser (localStorage). Works offline.
  *   SheetStore → saves in a Google Sheet via the Apps Script Web App.
  */
 (function (root) {
@@ -23,7 +23,7 @@
 
     return {
       mode: 'local',
-      label: 'Local mode · saved in this browser only',
+      label: 'DEMO pharmacy · saved in this browser only',
       async load() { return read(); },
       async upsertBatches(list) {
         const d = read();
@@ -51,23 +51,36 @@
         d.events = d.events.concat(list);
         write(d);
       },
-      async clearSample() {
+      async clearDemo() {
         const d = read();
-        d.batches = d.batches.filter(function (b) { return !b.sample; });
-        d.events = d.events.filter(function (e) { return !e.sample; });
+        d.batches = d.batches.filter(function (b) { return !b.demo; });
+        d.events = d.events.filter(function (e) { return !e.demo; });
         write(d);
       },
-      async ping() { return { ok: true, mode: 'local' }; }
+      async ping() { return { ok: true, mode: 'local' }; },
+      // Local DEMO pharmacy: fixed demo logins, no server involved.
+      async login(shopId, pin) {
+        const id = String(shopId || '').trim().toUpperCase();
+        if (String(pin) !== '1234' || (id !== 'DEMO' && id !== 'DEMO-STAFF')) throw new Error('Wrong Shop ID or PIN (demo: DEMO / 1234)');
+        return id === 'DEMO'
+          ? { token: 'local-demo', name: 'Demo Owner', role: 'owner', shopId: 'DEMO' }
+          : { token: 'local-demo-staff', name: 'Demo Staff', role: 'staff', shopId: 'DEMO' };
+      },
+      async logout() { return { ok: true }; }
     };
   }
 
   // ---------------- Google Sheet (Apps Script) ----------------
-  function SheetStore(url) {
+  function SheetStore(url, getToken) {
     async function get(action) {
-      const res = await fetch(url + '?action=' + encodeURIComponent(action), { method: 'GET' });
+      const res = await fetch(url + '?action=' + encodeURIComponent(action) + '&token=' + encodeURIComponent(getToken() || ''), { method: 'GET' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      if (data.error) {
+        const err = new Error(data.error);
+        if (data.error === 'Unauthorized') err.unauthorized = true;
+        throw err;
+      }
       return data;
     }
     async function post(action, payload) {
@@ -75,11 +88,15 @@
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(Object.assign({ action: action }, payload || {}))
+        body: JSON.stringify(Object.assign({ action: action, token: getToken() || '' }, payload || {}))
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      if (data.error) {
+        const err = new Error(data.error);
+        if (data.error === 'Unauthorized') err.unauthorized = true;
+        throw err;
+      }
       return data;
     }
 
@@ -88,20 +105,23 @@
       label: 'Live · Google Sheet',
       async load() {
         const d = await get('list');
-        return { batches: d.batches || [], events: d.events || [] };
+        return { batches: d.batches || [], events: d.events || [], settings: d.settings || null };
       },
       async upsertBatches(list) { return post('upsertBatches', { batches: list }); },
       async upsertBatch(b) { return post('upsertBatches', { batches: [b] }); },
       async deleteBatch(id) { return post('deleteBatch', { id: id }); },
       async addEvent(ev, batch) { return post('addEvent', { event: ev, batch: batch }); },
       async addEvents(list) { return post('addEvents', { events: list }); },
-      async clearSample() { return post('clearSample', {}); },
-      async ping() { return get('ping'); }
+      async clearDemo() { return post('clearDemo', {}); },
+      async ping() { return get('ping'); },
+      async login(shopId, pin) { return post('login', { shopId: shopId, pin: pin }); },
+      async logout() { return post('logout', {}); }
     };
   }
 
-  root.makeStore = function (apiUrl) {
+  /** apiUrl empty → LocalStore (DEMO pharmacy). getToken() returns the current session token. */
+  root.makeStore = function (apiUrl, getToken) {
     const url = String(apiUrl || '').trim();
-    return url ? SheetStore(url) : LocalStore();
+    return url ? SheetStore(url, getToken || function () { return ''; }) : LocalStore();
   };
 })(this);

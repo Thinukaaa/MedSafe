@@ -9,6 +9,45 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <!-- ================= START ================= -->
+  <section id="startScreen" class="screen" hidden>
+    <div class="start-card">
+      <svg class="hero-logo" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#1D4ED8"/><path d="M40 22h20v18h18v20H60v18H40V60H22V40h18z" fill="#fff"/></svg>
+      <h1 class="hero-name">MedSafe</h1>
+      <p class="hero-tag">Sell it before it expires.</p>
+      <p class="hero-theme">Zero waste, zero risk — expiry and fridge tracking for small pharmacies.</p>
+      <ul class="benefits">
+        <li><strong>Less expired waste</strong><span>See what to sell first, in rupees.</span></li>
+        <li><strong>Safer patients</strong><span>Expired stock is flagged before it is sold.</span></li>
+        <li><strong>Cold-chain watch</strong><span>Insulin fridge kept at 2–8 °C, every minute.</span></li>
+      </ul>
+      <div class="hero-actions">
+        <button class="btn primary lg" id="goSignIn">Sign in</button>
+        <button class="btn ghost lg" id="goDemo">Try demo pharmacy</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= LOGIN ================= -->
+  <section id="loginScreen" class="screen" hidden>
+    <form id="loginForm" class="start-card login" autocomplete="on">
+      <button type="button" class="btn link" id="loginBack">← Back</button>
+      <svg class="hero-logo sm" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#1D4ED8"/><path d="M40 22h20v18h18v20H60v18H40V60H22V40h18z" fill="#fff"/></svg>
+      <h2>Sign in to MedSafe</h2>
+      <label>Shop ID<input name="shopId" required autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="e.g. SHOP1"></label>
+      <label>PIN (4–6 digits)<input name="pin" type="password" required inputmode="numeric" pattern="\d{4,6}" minlength="4" maxlength="6" autocomplete="current-password"></label>
+      <details class="server">
+        <summary>Server</summary>
+        <label>Apps Script Web App URL (ends with /exec)<input name="apiUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec"></label>
+      </details>
+      <p class="form-error" id="loginError" role="alert"></p>
+      <button type="submit" class="btn primary lg">Sign in</button>
+      <p class="hint">DEMO pharmacy: Shop ID <strong>DEMO</strong>, PIN <strong>1234</strong> (owner) · <strong>DEMO-STAFF</strong> / 1234 (staff).</p>
+    </form>
+  </section>
+
+  <div id="appRoot" hidden>
+  <div class="demo-banner" role="note">DEMO pharmacy — stock is DEMO data (prices are real NMRA MRPs). Nothing here is a real shop.</div>
   <header class="topbar">
     <div class="brand">
       <svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#1D4ED8"/><path d="M40 22h20v18h18v20H60v18H40V60H22V40h18z" fill="#fff"/></svg>
@@ -21,6 +60,8 @@
       <span class="mode-badge" id="modeBadge">—</span>
       <span class="asof" id="asOf">—</span>
       <button class="btn ghost small" id="refreshBtn" title="Reload data">↻ Refresh</button>
+      <span class="whoami" id="whoami"></span>
+      <button class="btn ghost small" id="logoutBtn">Log out</button>
     </div>
   </header>
 
@@ -176,6 +217,7 @@
     <section class="panel" id="tab-settings">
       <article class="card narrow">
         <h2>Settings</h2>
+        <p class="assumption" id="ownerOnlyNote" hidden>Only the owner can change settings.</p>
         <form id="settingsForm">
           <label class="full">Pharmacy name<input name="pharmacyName" placeholder="Shown in the header"></label>
           <label>Critical window (days)<input name="criticalDays" type="number" min="1" step="1" required></label>
@@ -203,6 +245,7 @@
   <footer class="foot-note">
     Every number on this screen comes from entered stock records. Open <em>“How is this calculated?”</em> for the formula. Units: Rs = Sri Lankan rupees, qty = units (tablets, capsules, sachets, items).
   </footer>
+  </div>
 
   <!-- Action dialog -->
   <dialog id="actionDialog">
